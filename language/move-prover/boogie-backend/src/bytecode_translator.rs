@@ -42,7 +42,7 @@ use bytecode::{
 use codespan::LineIndex;
 use move_model::{
     ast::TempIndex,
-    model::{Loc, NodeId},
+    model::{Loc, NodeId, QualifiedInstId, StructId},
     ty::BOOL_TYPE,
 };
 
@@ -592,11 +592,14 @@ impl<'env> FunctionTranslator<'env> {
             self.translate_verify_entry_assumptions(fun_target);
         }
 
+        // A mapping from struct instantiations to a unique id within this function.
+        let mut global_resource_ids = BTreeMap::new();
+
         // Generate bytecode
         emitln!(writer, "\n// bytecode translation starts here");
         let mut last_tracked_loc = None;
         for bytecode in code.iter() {
-            self.translate_bytecode(&mut last_tracked_loc, bytecode);
+            self.translate_bytecode(&mut last_tracked_loc, &mut global_resource_ids, bytecode);
         }
 
         writer.unindent();
@@ -660,6 +663,7 @@ impl<'env> FunctionTranslator<'env> {
     fn translate_bytecode(
         &self,
         last_tracked_loc: &mut Option<(Loc, LineIndex)>,
+        global_resource_ids: &mut BTreeMap<QualifiedInstId<StructId>, usize>,
         bytecode: &Bytecode,
     ) {
         use Bytecode::*;
@@ -820,40 +824,23 @@ impl<'env> FunctionTranslator<'env> {
                         self.translate_write_back(node, edge, srcs[0]);
                     }
                     IsParent(node, edge) => {
-                        if let BorrowNode::Reference(parent) = node {
-                            let src_str = str_local(srcs[0]);
-                            let edge_pattern = edge
-                                .flatten()
-                                .into_iter()
-                                .filter_map(|e| match e {
-                                    BorrowEdge::Field(_, offset) => Some(format!("{}", offset)),
-                                    BorrowEdge::Index => Some("-1".to_owned()),
-                                    BorrowEdge::Direct => None,
-                                    _ => unreachable!(),
-                                })
-                                .collect_vec();
-                            if edge_pattern.len() == 1 {
-                                emitln!(
-                                    writer,
-                                    "{} := $IsParentMutation({}, {}, {});",
-                                    str_local(dests[0]),
-                                    str_local(*parent),
-                                    edge_pattern[0],
-                                    src_str
-                                );
-                            } else {
-                                emitln!(
-                                    writer,
-                                    "{} := $IsParentMutationHyper({}, {}, {});",
-                                    str_local(dests[0]),
-                                    str_local(*parent),
-                                    boogie_make_vec_from_strings(&edge_pattern),
-                                    src_str
-                                );
-                            }
-                        } else {
-                            panic!("inconsistent IsParent instruction: expected a reference node")
-                        }
+                        self.translate_is_parent(
+                            global_resource_ids,
+                            node,
+                            edge,
+                            dests[0],
+                            srcs[0],
+                        );
+                    }
+                    GlobalAddress => {
+                        let src = srcs[0];
+                        let dest = dests[0];
+                        emitln!(
+                            writer,
+                            "{} := $GlobalLocationAddress({});",
+                            str_local(dest),
+                            str_local(src)
+                        );
                     }
                     BorrowLoc => {
                         let src = srcs[0];
@@ -1000,22 +987,25 @@ impl<'env> FunctionTranslator<'env> {
                     }
                     BorrowGlobal(mid, sid, inst) => {
                         let inst = self.inst_slice(inst);
+                        let inst_id = mid.qualified_inst(*sid, inst);
+                        let memory = boogie_resource_memory_name(env, &inst_id, &None);
+                        let next_resource_id = global_resource_ids.len();
+                        let resource_id = *global_resource_ids
+                            .entry(inst_id)
+                            .or_insert(next_resource_id);
+
                         let addr_str = str_local(srcs[0]);
                         let dest_str = str_local(dests[0]);
-                        let memory = boogie_resource_memory_name(
-                            env,
-                            &mid.qualified_inst(*sid, inst),
-                            &None,
-                        );
                         emitln!(writer, "if (!$ResourceExists({}, {})) {{", memory, addr_str);
                         writer.with_indent(|| emitln!(writer, "call $ExecFailureAbort();"));
                         emitln!(writer, "} else {");
                         writer.with_indent(|| {
                             emitln!(
                                 writer,
-                                "{} := $Mutation($Global({}), EmptyVec(), $ResourceValue({}, {}));",
+                                "{} := $Mutation($Global({}, {}), EmptyVec(), $ResourceValue({}, {}));",
                                 dest_str,
                                 addr_str,
+                                resource_id,
                                 memory,
                                 addr_str
                             );
@@ -1434,6 +1424,103 @@ impl<'env> FunctionTranslator<'env> {
             Nop(..) => {}
         }
         emitln!(writer);
+    }
+
+    fn translate_is_parent(
+        &self,
+        global_resource_ids: &mut BTreeMap<QualifiedInstId<StructId>, usize>,
+        node: &BorrowNode,
+        edge: &BorrowEdge,
+        dst: TempIndex,
+        src: TempIndex,
+    ) {
+        use BorrowNode::*;
+        let writer = self.parent.writer;
+        let dst_str = format!("$t{}", dst);
+        let src_str = format!("$t{}", src);
+        let edge_pattern = edge
+            .flatten()
+            .into_iter()
+            .filter_map(|e| match e {
+                BorrowEdge::Field(_, offset) => Some(format!("{}", offset)),
+                BorrowEdge::Index => Some("-1".to_owned()),
+                BorrowEdge::Direct => None,
+                _ => unreachable!(),
+            })
+            .collect_vec();
+        match node {
+            LocalRoot(parent) => {
+                if edge_pattern.is_empty() {
+                    emitln!(
+                        writer,
+                        "{} := $IsParentLocal({}, {});",
+                        dst_str,
+                        parent,
+                        src_str
+                    );
+                } else {
+                    emitln!(
+                        writer,
+                        "{} := $IsParentLocalHyper({}, {}, {});",
+                        dst_str,
+                        parent,
+                        boogie_make_vec_from_strings(&edge_pattern),
+                        src_str
+                    );
+                }
+            }
+            GlobalRoot(memory) => {
+                let inst = self.inst_slice(&memory.inst);
+                let inst_id = memory.module_id.qualified_inst(memory.id, inst);
+                let next_resource_id = global_resource_ids.len();
+                let resource_id = *global_resource_ids
+                    .entry(inst_id)
+                    .or_insert(next_resource_id);
+
+                if edge_pattern.is_empty() {
+                    emitln!(
+                        writer,
+                        "{} := $IsParentGlobal({}, {});",
+                        dst_str,
+                        resource_id,
+                        src_str
+                    );
+                } else {
+                    emitln!(
+                        writer,
+                        "{} := $IsParentGlobalHyper({}, {}, {});",
+                        dst_str,
+                        resource_id,
+                        boogie_make_vec_from_strings(&edge_pattern),
+                        src_str
+                    );
+                }
+            }
+            Reference(parent) => {
+                if edge_pattern.len() == 1 {
+                    emitln!(
+                        writer,
+                        "{} := $IsParentMutation($t{}, {}, {});",
+                        dst_str,
+                        parent,
+                        edge_pattern[0],
+                        src_str
+                    );
+                } else {
+                    emitln!(
+                        writer,
+                        "{} := $IsParentMutationHyper($t{}, {}, {});",
+                        dst_str,
+                        parent,
+                        boogie_make_vec_from_strings(&edge_pattern),
+                        src_str
+                    );
+                }
+            }
+            ReturnPlaceholder(..) => {
+                unreachable!("unexpected transient borrow node")
+            }
+        }
     }
 
     fn translate_write_back(&self, dest: &BorrowNode, edge: &BorrowEdge, src: TempIndex) {

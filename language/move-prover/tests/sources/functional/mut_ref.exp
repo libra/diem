@@ -19,12 +19,10 @@ error: data invariant does not hold
    =     at tests/sources/functional/mut_ref.move:8
    =     at tests/sources/functional/mut_ref.move:118: call_return_ref_different_path_vec2_incorrect
    =     at tests/sources/functional/mut_ref.move:8
-   =     at tests/sources/functional/mut_ref.move:118: call_return_ref_different_path_vec2_incorrect
    =     at tests/sources/functional/mut_ref.move:119: call_return_ref_different_path_vec2_incorrect
    =     at tests/sources/functional/mut_ref.move:8
    =     at tests/sources/functional/mut_ref.move:119: call_return_ref_different_path_vec2_incorrect
    =     at tests/sources/functional/mut_ref.move:8
-   =     at tests/sources/functional/mut_ref.move:119: call_return_ref_different_path_vec2_incorrect
    =     at tests/sources/functional/mut_ref.move:120: call_return_ref_different_path_vec2_incorrect
    =         x = <redacted>
    =     at tests/sources/functional/mut_ref.move:121: call_return_ref_different_path_vec2_incorrect

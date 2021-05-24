@@ -712,9 +712,16 @@ impl<'env> FunctionContext<'env> {
                 }
                 Ok(vec![])
             }
-            Operation::WriteBack(BorrowNode::ReturnPlaceholder(_), ..) => {
-                // this node should never appear in bytecode
-                unreachable!()
+            Operation::WriteBack(BorrowNode::ReturnPlaceholder(_), _) => {
+                // temporary placeholder, never appears in processed bytecode instructions
+                unreachable!();
+            }
+            Operation::GlobalAddress => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(typed_args.len(), 1);
+                }
+                let addr = self.handle_global_address(typed_args.remove(0), local_state);
+                Ok(vec![addr])
             }
             // references
             Operation::BorrowLoc => {
@@ -1430,6 +1437,22 @@ impl<'env> FunctionContext<'env> {
             _ => unreachable!(),
         };
         local_state.put_value(local_ref, new_val);
+    }
+
+    fn handle_global_address(&self, ref_val: TypedValue, local_state: &LocalState) -> TypedValue {
+        let (ty, _, ptr) = ref_val.decompose();
+        if cfg!(debug_assertions) {
+            assert!(ty.is_ref(Some(true)));
+        }
+        match ptr {
+            Pointer::Global(addr) => TypedValue::mk_address(addr),
+            Pointer::RefField(parent, _) | Pointer::RefElement(parent, _) => {
+                self.handle_global_address(local_state.get_value(parent), local_state)
+            }
+            Pointer::None | Pointer::Local(_) | Pointer::ArgRef(_, _) | Pointer::RetRef(_) => {
+                unreachable!()
+            }
+        }
     }
 
     fn handle_borrow_local(

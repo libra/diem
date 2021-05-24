@@ -37,23 +37,27 @@ public fun Test::incr($t0|a: address) {
      var $t5: u64
      var $t6: u64
      var $t7: &mut u64
+     var $t8: address
+     var $t9: &mut Test::R
   0: assume WellFormed($t0)
   1: assume forall $rsc: ResourceDomain<Test::R>(): WellFormed($rsc)
-  2: $t2 := borrow_global<Test::R>($t0) on_abort goto 14 with $t3
+  2: $t2 := borrow_global<Test::R>($t0) on_abort goto 16 with $t3
   3: $t4 := get_field<Test::R>.x($t2)
   4: $t5 := 1
-  5: $t6 := +($t4, $t5) on_abort goto 14 with $t3
+  5: $t6 := +($t4, $t5) on_abort goto 16 with $t3
   6: $t7 := borrow_field<Test::R>.x($t2)
   7: write_ref($t7, $t6)
-  8: write_back[Reference($t2).x]($t7)
+  8: $t8 := global_address($t7)
+  9: $t9 := borrow_global<Test::R>($t8) on_abort goto 16 with $t3
+ 10: write_back[Reference($t9).x]($t7)
      # state save for global update invariants
-  9: @1 := save_mem(Test::R)
- 10: write_back[Test::R@]($t2)
+ 11: @1 := save_mem(Test::R)
+ 12: write_back[Test::R@]($t9)
      # global invariant at tests/global_invariant_instrumentation/update.move:7:9+82
      # VC: global memory invariant does not hold at tests/global_invariant_instrumentation/update.move:7:9+82
- 11: assert forall a: TypeDomain<address>(): Lt(select Test::R.x(global[@1]<Test::R>(a)), select Test::R.x(global<Test::R>(a)))
- 12: label L1
- 13: return ()
- 14: label L2
- 15: abort($t3)
+ 13: assert forall a: TypeDomain<address>(): Lt(select Test::R.x(global[@1]<Test::R>(a)), select Test::R.x(global<Test::R>(a)))
+ 14: label L1
+ 15: return ()
+ 16: label L2
+ 17: abort($t3)
 }

@@ -139,6 +139,7 @@ pub enum Operation {
     PackRef,
     UnpackRefDeep,
     PackRefDeep,
+    GlobalAddress,
 
     // Unary
     CastU8,
@@ -206,6 +207,7 @@ impl Operation {
             Operation::PackRef => false,
             Operation::UnpackRefDeep => false,
             Operation::PackRefDeep => false,
+            Operation::GlobalAddress => false,
             Operation::CastU8 => true,
             Operation::CastU64 => true,
             Operation::CastU128 => true,
@@ -905,6 +907,9 @@ impl<'env> fmt::Display for OperationDisplay<'env> {
                 node.display(self.func_target),
                 edge.display(self.func_target.global_env())
             )?,
+            GlobalAddress => {
+                write!(f, "global_address")?;
+            }
 
             Havoc(kind) => {
                 write!(

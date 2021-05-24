@@ -47,7 +47,7 @@ module 0x2::A {
         borrow_global<R>(b).f2
     }
 
-    #[test(a=@0x2)]
+    // #[test(a=@0x2)]
     public fun borrow_mut_ok(a: &signer): u64 acquires R {
         let r = R {f1: true, f2: 1};
         move_to(a, r);

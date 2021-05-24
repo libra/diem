@@ -7,7 +7,7 @@ use crate::{
     function_target::FunctionData,
     function_target_pipeline::{FunctionTargetProcessor, FunctionTargetsHolder},
     stackless_bytecode::{
-        BorrowNode,
+        BorrowEdge, BorrowNode,
         Bytecode::{self, *},
         Operation,
     },
@@ -17,7 +17,7 @@ use move_model::{
     ast::ConditionKind,
     exp_generator::ExpGenerator,
     model::{FunctionEnv, StructEnv},
-    ty::{Type, BOOL_TYPE},
+    ty::{PrimitiveType, Type, BOOL_TYPE},
 };
 
 pub struct MemoryInstrumentationProcessor {}
@@ -140,54 +140,192 @@ impl<'a> Instrumenter<'a> {
         for node in before.dying_nodes(after) {
             if let BorrowNode::Reference(idx) = &node {
                 // Generate write_back for this reference.
-                let is_conditional = before.is_conditional(&node);
+                let incoming = before.get_incoming(&node);
+                let is_conditional = incoming.len() > 1;
                 for (parent, edge) in before.get_incoming(&node) {
                     self.builder.set_loc_from_attr(attr_id);
-                    let skip_label_opt = match parent {
-                        BorrowNode::Reference(..) if is_conditional => {
-                            let temp = self.builder.new_temp(BOOL_TYPE.clone());
+
+                    // instrument IsParent checks if there may be multiple parents
+                    let skip_label_opt = if is_conditional {
+                        let temp = self.builder.new_temp(BOOL_TYPE.clone());
+                        self.builder.emit_with(|id| {
+                            Bytecode::Call(
+                                id,
+                                vec![temp],
+                                Operation::IsParent(parent.clone(), edge.clone()),
+                                vec![*idx],
+                                None,
+                            )
+                        });
+                        let update_label = self.builder.new_label();
+                        let skip_label = self.builder.new_label();
+                        self.builder
+                            .emit_with(|id| Bytecode::Branch(id, update_label, skip_label, temp));
+                        self.builder
+                            .emit_with(|id| Bytecode::Label(id, update_label));
+                        Some(skip_label)
+                    } else {
+                        None
+                    };
+
+                    // handle the write-back
+                    let (should_pack_ref, fina_ref_idx) = match &parent {
+                        BorrowNode::LocalRoot(root_idx) => {
+                            let ref_ty = Type::Reference(
+                                true,
+                                Box::new(self.builder.get_local_type(*root_idx)),
+                            );
+                            let should_pack_ref =
+                                self.is_pack_ref_ty(&ref_ty) && !after.is_in_use(&parent);
+
+                            let from_idx = match edge {
+                                BorrowEdge::Direct => *idx,
+                                BorrowEdge::Hyper(mut edges) => {
+                                    assert!(matches!(edges.remove(0), BorrowEdge::Direct));
+                                    // generate a shadow ref just for the purpose of write-back
+                                    let temp = self.builder.new_temp(ref_ty);
+                                    self.builder.emit_with(|id| {
+                                        Bytecode::Call(
+                                            id,
+                                            vec![temp],
+                                            Operation::BorrowLoc,
+                                            vec![*root_idx],
+                                            None,
+                                        )
+                                    });
+                                    // write-back to the shadow ref
+                                    let shadow_parent = BorrowNode::Reference(temp);
+                                    self.builder.emit_with(|id| {
+                                        Bytecode::Call(
+                                            id,
+                                            vec![],
+                                            Operation::WriteBack(
+                                                shadow_parent,
+                                                BorrowEdge::Hyper(edges),
+                                            ),
+                                            vec![*idx],
+                                            None,
+                                        )
+                                    });
+                                    temp
+                                }
+                                _ => unreachable!(
+                                    "only direct or hyper edges allowed for local root"
+                                ),
+                            };
+
                             self.builder.emit_with(|id| {
                                 Bytecode::Call(
                                     id,
-                                    vec![temp],
-                                    Operation::IsParent(parent.clone(), edge.clone()),
+                                    vec![],
+                                    Operation::WriteBack(parent, BorrowEdge::Direct),
+                                    vec![from_idx],
+                                    None,
+                                )
+                            });
+                            (should_pack_ref, from_idx)
+                        }
+                        BorrowNode::GlobalRoot(inst_id) => {
+                            let ref_ty = Type::Reference(true, Box::new(inst_id.to_type()));
+                            let should_pack_ref =
+                                self.is_pack_ref_ty(&ref_ty) && !after.is_in_use(&parent);
+
+                            let from_idx = match edge {
+                                BorrowEdge::Direct => *idx,
+                                BorrowEdge::Hyper(mut edges) => {
+                                    assert!(matches!(edges.remove(0), BorrowEdge::Direct));
+                                    // generate a shadow ref just for the purpose of write-back
+                                    let addr = self
+                                        .builder
+                                        .new_temp(Type::Primitive(PrimitiveType::Address));
+                                    self.builder.emit_with(|id| {
+                                        Bytecode::Call(
+                                            id,
+                                            vec![addr],
+                                            Operation::GlobalAddress,
+                                            vec![*idx],
+                                            None,
+                                        )
+                                    });
+                                    let temp = self.builder.new_temp(ref_ty);
+                                    self.builder.emit_with(|id| {
+                                        Bytecode::Call(
+                                            id,
+                                            vec![temp],
+                                            Operation::BorrowGlobal(
+                                                inst_id.module_id,
+                                                inst_id.id,
+                                                inst_id.inst.to_vec(),
+                                            ),
+                                            vec![addr],
+                                            None,
+                                        )
+                                    });
+                                    // write-back to the shadow ref
+                                    let shadow_parent = BorrowNode::Reference(temp);
+                                    self.builder.emit_with(|id| {
+                                        Bytecode::Call(
+                                            id,
+                                            vec![],
+                                            Operation::WriteBack(
+                                                shadow_parent,
+                                                BorrowEdge::Hyper(edges),
+                                            ),
+                                            vec![*idx],
+                                            None,
+                                        )
+                                    });
+                                    temp
+                                }
+                                _ => unreachable!(
+                                    "only direct or hyper edges allowed for global root"
+                                ),
+                            };
+
+                            self.builder.emit_with(|id| {
+                                Bytecode::Call(
+                                    id,
+                                    vec![],
+                                    Operation::WriteBack(parent, BorrowEdge::Direct),
+                                    vec![from_idx],
+                                    None,
+                                )
+                            });
+                            (should_pack_ref, from_idx)
+                        }
+                        BorrowNode::Reference(ref_idx) => {
+                            let ref_idx = *ref_idx;
+                            self.builder.emit_with(|id| {
+                                Bytecode::Call(
+                                    id,
+                                    vec![],
+                                    Operation::WriteBack(parent, edge),
                                     vec![*idx],
                                     None,
                                 )
                             });
-                            let update_label = self.builder.new_label();
-                            let skip_label = self.builder.new_label();
-                            self.builder.emit_with(|id| {
-                                Bytecode::Branch(id, update_label, skip_label, temp)
-                            });
-                            self.builder
-                                .emit_with(|id| Bytecode::Label(id, update_label));
-                            Some(skip_label)
+                            (false, ref_idx)
                         }
-                        _ => None,
+                        BorrowNode::ReturnPlaceholder(..) => {
+                            unreachable!("unexpected transient borrow node")
+                        }
                     };
-                    if matches!(
-                        parent,
-                        BorrowNode::LocalRoot(..) | BorrowNode::GlobalRoot(..)
-                    ) {
-                        // On write-back to a root, "pack" the reference i.e. validate all its
-                        // invariants.
-                        let ty = &self.builder.get_target().get_local_type(*idx).to_owned();
-                        if self.is_pack_ref_ty(ty) {
-                            self.builder.emit_with(|id| {
-                                Bytecode::Call(id, vec![], Operation::PackRefDeep, vec![*idx], None)
-                            });
-                        }
+
+                    // On write-back to a local or global root, "pack" the reference,
+                    // i.e. validate all its invariants.
+                    if should_pack_ref {
+                        self.builder.emit_with(|id| {
+                            Bytecode::Call(
+                                id,
+                                vec![],
+                                Operation::PackRefDeep,
+                                vec![fina_ref_idx],
+                                None,
+                            )
+                        });
                     }
-                    self.builder.emit_with(|id| {
-                        Bytecode::Call(
-                            id,
-                            vec![],
-                            Operation::WriteBack(parent, edge),
-                            vec![*idx],
-                            None,
-                        )
-                    });
+
+                    // add the skip label
                     if let Some(label) = skip_label_opt {
                         self.builder.emit_with(|id| Bytecode::Label(id, label));
                     }

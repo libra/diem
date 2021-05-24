@@ -1,0 +1,135 @@
+============ initial translation from Move ================
+
+[variant baseline]
+fun Test::process_outer($t0|cond: bool, $t1|s: &mut Test::Outer) {
+     var $t2|tmp#$2: &mut u64
+     var $t3|x: &mut u64
+     var $t4: bool
+     var $t5: &mut Test::Outer
+     var $t6: &mut Test::Inner
+     var $t7: &mut u64
+     var $t8: &mut Test::Outer
+     var $t9: &mut Test::Inner
+     var $t10: &mut u64
+     var $t11: &mut u64
+     var $t12: u64
+     var $t13: &mut u64
+  0: $t4 := copy($t0)
+  1: if ($t4) goto 4 else goto 2
+  2: label L1
+  3: goto 10
+  4: label L0
+  5: $t5 := move($t1)
+  6: $t6 := borrow_field<Test::Outer>.f1($t5)
+  7: $t7 := Test::ret_mut_inner($t6)
+  8: $t2 := $t7
+  9: goto 16
+ 10: label L2
+ 11: $t8 := move($t1)
+ 12: $t9 := borrow_field<Test::Outer>.f2($t8)
+ 13: $t10 := Test::ret_mut_inner($t9)
+ 14: $t2 := $t10
+ 15: goto 16
+ 16: label L3
+ 17: $t11 := move($t2)
+ 18: $t3 := $t11
+ 19: $t12 := 1
+ 20: $t13 := move($t3)
+ 21: write_ref($t13, $t12)
+ 22: return ()
+}
+
+
+[variant baseline]
+fun Test::ret_mut_inner($t0|s: &mut Test::Inner): &mut u64 {
+     var $t1: &mut Test::Inner
+     var $t2: &mut u64
+  0: $t1 := move($t0)
+  1: $t2 := borrow_field<Test::Inner>.v($t1)
+  2: return $t2
+}
+
+============ after pipeline `livevar_after_memory_instr` ================
+
+[variant baseline]
+fun Test::process_outer($t0|cond: bool, $t1|s: &mut Test::Outer) {
+     var $t2|tmp#$2: &mut u64
+     var $t3|x: &mut u64
+     var $t4: &mut Test::Inner
+     var $t5: &mut Test::Inner
+     var $t6: u64
+     var $t7: bool
+     var $t8: bool
+     # live vars: cond, s
+  0: if ($t0) goto 3 else goto 1
+     # live vars: s
+  1: label L1
+     # live vars: s
+  2: goto 8
+     # live vars: s
+  3: label L0
+     # live vars: s
+  4: $t4 := borrow_field<Test::Outer>.f1($t1)
+     # live vars: s, $t4
+  5: $t2 := Test::ret_mut_inner($t4)
+     # live vars: s, tmp#$2, $t4
+  6: write_back[Reference($t1).f1]($t4)
+     # live vars: s, tmp#$2
+  7: goto 12
+     # live vars: s
+  8: label L2
+     # live vars: s
+  9: $t5 := borrow_field<Test::Outer>.f2($t1)
+     # live vars: s, $t5
+ 10: $t2 := Test::ret_mut_inner($t5)
+     # live vars: s, tmp#$2, $t5
+ 11: write_back[Reference($t1).f2]($t5)
+     # live vars: s, tmp#$2
+ 12: label L3
+     # live vars: s, tmp#$2
+ 13: $t6 := 1
+     # live vars: s, tmp#$2, $t6
+ 14: write_ref($t2, $t6)
+     # live vars: s, tmp#$2
+ 15: $t7 := is_parent[Reference($t1).f1/.v]($t2)
+     # live vars: s, tmp#$2, $t7
+ 16: if ($t7) goto 17 else goto 19
+     # live vars: s, tmp#$2
+ 17: label L4
+     # live vars: s, tmp#$2
+ 18: write_back[Reference($t1).f1/.v]($t2)
+     # live vars: s, tmp#$2
+ 19: label L5
+     # live vars: s, tmp#$2
+ 20: $t8 := is_parent[Reference($t1).f2/.v]($t2)
+     # live vars: s, tmp#$2, $t8
+ 21: if ($t8) goto 22 else goto 27
+     # live vars: s, tmp#$2
+ 22: label L6
+     # live vars: s, tmp#$2
+ 23: write_back[Reference($t1).f2/.v]($t2)
+     # live vars: s
+ 24: label L7
+     # live vars: s
+ 25: trace_local[s]($t1)
+     # live vars:
+ 26: return ()
+     # live vars: s, tmp#$2
+ 27: label L8
+     # live vars: s, tmp#$2
+ 28: destroy($t2)
+     # live vars: s
+ 29: goto 24
+}
+
+
+[variant baseline]
+fun Test::ret_mut_inner($t0|s: &mut Test::Inner): &mut u64 {
+     var $t1: &mut u64
+     # live vars: s
+  0: $t1 := borrow_field<Test::Inner>.v($t0)
+     # live vars: s, $t1
+  1: trace_local[s]($t0)
+     # live vars: $t1
+  2: return $t1
+}

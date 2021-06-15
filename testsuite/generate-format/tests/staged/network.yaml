@@ -136,6 +136,8 @@ ProtocolId:
       DiscoveryDirectSend: UNIT
     5:
       HealthCheckerRpc: UNIT
+    6:
+      ConsensusDirectSendCbor: UNIT
 PublicKey:
   NEWTYPESTRUCT: BYTES
 RpcRequest:

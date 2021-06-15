@@ -88,7 +88,10 @@ pub fn network_endpoint_config() -> (
 ) {
     (
         vec![ProtocolId::ConsensusRpc],
-        vec![ProtocolId::ConsensusDirectSend],
+        vec![
+            ProtocolId::ConsensusDirectSend,
+            ProtocolId::ConsensusDirectSendCbor,
+        ],
         QueueStyle::LIFO,
         NETWORK_CHANNEL_SIZE,
         Some(&counters::PENDING_CONSENSUS_NETWORK_EVENTS),

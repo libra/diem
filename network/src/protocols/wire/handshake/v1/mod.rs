@@ -140,6 +140,11 @@ impl SupportedProtocols {
     fn intersection(self, other: SupportedProtocols) -> SupportedProtocols {
         SupportedProtocols(self.0 & other.0)
     }
+
+    /// Returns if the protocol is set.
+    pub fn contains(&self, protocol: ProtocolId) -> bool {
+        self.0.is_set(protocol as u8)
+    }
 }
 
 //

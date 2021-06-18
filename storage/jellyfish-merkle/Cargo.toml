@@ -12,6 +12,7 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.38"
 byteorder = "1.4.3"
+itertools = { version = "0.10.0", default-features = false }
 mirai-annotations = "1.10.1"
 num-derive = "0.3.3"
 num-traits = "0.2.14"
@@ -27,7 +28,6 @@ diem-crypto = { path = "../../crypto/crypto" }
 diem-crypto-derive = { path = "../../crypto/crypto-derive" }
 diem-infallible = { path = "../../common/infallible" }
 diem-metrics = { path = "../../common/metrics" }
-diem-nibble = { path = "../../common/nibble" }
 diem-types = { path = "../../types" }
 diem-workspace-hack = { path = "../../common/workspace-hack" }
 
@@ -37,9 +37,8 @@ proptest = "1.0.0"
 proptest-derive = "0.3.0"
 
 diem-crypto = { path = "../../crypto/crypto", features = ["fuzzing"] }
-diem-nibble = { path = "../../common/nibble", features = ["fuzzing"] }
 diem-types = { path = "../../types", features = ["fuzzing"] }
 
 [features]
 default = []
-fuzzing = ["proptest", "rand", "proptest-derive", "diem-crypto/fuzzing", "diem-types/fuzzing", "diem-nibble/fuzzing"]
+fuzzing = ["proptest", "rand", "proptest-derive", "diem-crypto/fuzzing", "diem-types/fuzzing"]

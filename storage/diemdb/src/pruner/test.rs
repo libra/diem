@@ -18,6 +18,7 @@ fn put_account_state_set(
     let root = state_store
         .put_account_state_sets(
             vec![account_state_set.into_iter().collect::<HashMap<_, _>>()],
+            None,
             version,
             &mut cs,
         )

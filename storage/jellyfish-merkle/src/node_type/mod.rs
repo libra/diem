@@ -12,19 +12,15 @@
 #[cfg(test)]
 mod node_type_test;
 
-use crate::{
-    metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES},
-    nibble_path::NibblePath,
-    ROOT_NIBBLE_HEIGHT,
-};
+use crate::metrics::{DIEM_JELLYFISH_INTERNAL_ENCODED_BYTES, DIEM_JELLYFISH_LEAF_ENCODED_BYTES};
 use anyhow::{ensure, Context, Result};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use diem_crypto::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
     HashValue,
 };
-use diem_nibble::Nibble;
 use diem_types::{
+    nibble::{nibble_path::NibblePath, Nibble, ROOT_NIBBLE_HEIGHT},
     proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
     transaction::Version,
 };

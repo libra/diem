@@ -19,7 +19,6 @@ members = [
     "common/logger/derive",
     "common/metrics",
     "common/metrics-core",
-    "common/nibble",
     "common/num-variants",
     "common/proptest-helpers",
     "common/proxy",

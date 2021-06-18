@@ -7,8 +7,7 @@
 #[cfg(test)]
 mod nibble_path_test;
 
-use crate::ROOT_NIBBLE_HEIGHT;
-use diem_nibble::Nibble;
+use crate::nibble::{Nibble, ROOT_NIBBLE_HEIGHT};
 use mirai_annotations::*;
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::{collection::vec, prelude::*};
@@ -153,7 +152,7 @@ impl NibblePath {
     }
 
     /// Get the i-th nibble.
-    fn get_nibble(&self, i: usize) -> Nibble {
+    pub fn get_nibble(&self, i: usize) -> Nibble {
         assert!(i < self.num_nibbles);
         Nibble::from((self.bytes[i / 2] >> (if i % 2 == 1 { 0 } else { 4 })) & 0xf)
     }

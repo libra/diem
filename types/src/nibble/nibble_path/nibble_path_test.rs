@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{arb_internal_nibble_path, skip_common_prefix, NibblePath};
-use diem_nibble::Nibble;
+use crate::nibble::Nibble;
 use proptest::prelude::*;
 
 #[test]

@@ -539,9 +539,17 @@ impl DiemDB {
             .iter()
             .map(|txn_to_commit| txn_to_commit.account_states().clone())
             .collect::<Vec<_>>();
-        let state_root_hashes =
-            self.state_store
-                .put_account_state_sets(account_state_sets, first_version, &mut cs)?;
+
+        let node_hashes = txns_to_commit
+            .iter()
+            .map(|txn_to_commit| txn_to_commit.jf_node_hashes().clone())
+            .collect::<Vec<_>>();
+        let state_root_hashes = self.state_store.put_account_state_sets(
+            account_state_sets,
+            Some(node_hashes),
+            first_version,
+            &mut cs,
+        )?;
 
         // Event updates. Gather event accumulator root hashes.
         let event_root_hashes = zip_eq(first_version..=last_version, txns_to_commit)

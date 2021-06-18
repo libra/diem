@@ -9,6 +9,7 @@ use crate::{
     chain_id::ChainId,
     contract_event::ContractEvent,
     ledger_info::LedgerInfo,
+    nibble::nibble_path::NibblePath,
     proof::{accumulator::InMemoryAccumulator, TransactionInfoWithProof, TransactionListProof},
     transaction::authenticator::{AccountAuthenticator, TransactionAuthenticator},
     vm_status::{DiscardedVMStatus, KeptVMStatus, StatusCode, StatusType, VMStatus},
@@ -991,6 +992,7 @@ impl Display for TransactionInfo {
 pub struct TransactionToCommit {
     transaction: Transaction,
     account_states: HashMap<AccountAddress, AccountStateBlob>,
+    jf_node_hashes: HashMap<NibblePath, HashValue>,
     events: Vec<ContractEvent>,
     gas_used: u64,
     status: KeptVMStatus,
@@ -1000,6 +1002,7 @@ impl TransactionToCommit {
     pub fn new(
         transaction: Transaction,
         account_states: HashMap<AccountAddress, AccountStateBlob>,
+        jf_node_hashes: HashMap<NibblePath, HashValue>,
         events: Vec<ContractEvent>,
         gas_used: u64,
         status: KeptVMStatus,
@@ -1007,6 +1010,7 @@ impl TransactionToCommit {
         TransactionToCommit {
             transaction,
             account_states,
+            jf_node_hashes,
             events,
             gas_used,
             status,
@@ -1019,6 +1023,10 @@ impl TransactionToCommit {
 
     pub fn account_states(&self) -> &HashMap<AccountAddress, AccountStateBlob> {
         &self.account_states
+    }
+
+    pub fn jf_node_hashes(&self) -> &HashMap<NibblePath, HashValue> {
+        &self.jf_node_hashes
     }
 
     pub fn events(&self) -> &[ContractEvent] {

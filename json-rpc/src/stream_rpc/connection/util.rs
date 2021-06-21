@@ -1,8 +1,7 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::stream_rpc::transport::util::Transport;
-use diem_json_rpc_types::stream::errors::StreamError;
+use crate::stream_rpc::{errors::StreamError, transport::util::Transport};
 use futures::Stream;
 use tokio::sync::mpsc;
 

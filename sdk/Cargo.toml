@@ -24,7 +24,7 @@ move-core-types = { path = "../language/move-core/types", version = "0.0.2" }
 diem-transaction-builder = { path = "./transaction-builder", version = "0.0.2" }
 
 # Optional Dependencies
-diem-client = { path = "./client", version = "0.0.2", optional = true }
+diem-client = { path = "./client", version = "0.0.3", optional = true }
 
 [dev-dependencies]
 diem-workspace-hack = { path = "../common/workspace-hack" }

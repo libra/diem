@@ -14,11 +14,12 @@ use storage_interface::DbReader;
 
 use crate::stream_rpc::{
     connection::{ConnectionContext, ConnectionManager},
-    counters, logging,
+    counters,
+    errors::StreamError,
+    logging,
     subscription_types::SubscriptionConfig,
     transport::util::{get_remote_addr, Transport},
 };
-use diem_json_rpc_types::stream::errors::StreamError;
 
 pub fn get_websocket_routes(
     config: &StreamConfig,

@@ -46,3 +46,13 @@ macro_rules! cfg_faucet {
         )*
     }
 }
+
+macro_rules! cfg_websocket {
+    ($($item:item)*) => {
+        $(
+            #[cfg(feature = "websocket")]
+            #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
+            $item
+        )*
+    }
+}

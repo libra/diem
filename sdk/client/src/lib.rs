@@ -40,6 +40,11 @@ cfg_async_or_blocking! {
     pub use move_deserialize::Event;
 }
 
+//cfg_websocket! {
+mod websocket_client;
+pub use websocket_client::WebsocketClient;
+//}
+
 mod state;
 pub use state::State;
 

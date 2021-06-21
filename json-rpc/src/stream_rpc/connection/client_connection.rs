@@ -6,6 +6,7 @@ use crate::{
     stream_rpc::{
         connection::{ConnectionContext, StreamSender},
         counters,
+        errors::StreamError,
         json_rpc::CallableStreamMethod,
         logging,
         subscription_types::SubscriptionConfig,
@@ -14,7 +15,6 @@ use crate::{
 use diem_infallible::Mutex;
 use diem_json_rpc_types::{
     stream::{
-        errors::StreamError,
         request::{StreamJsonRpcRequest, StreamMethod},
         response::StreamJsonRpcResponse,
     },

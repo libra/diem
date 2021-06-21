@@ -15,6 +15,14 @@ pub struct StreamJsonRpcRequest {
 }
 
 impl StreamJsonRpcRequest {
+    pub fn new(method_request: StreamMethodRequest, id: Id) -> Self {
+        Self {
+            jsonrpc: JsonRpcVersion::V2,
+            method_request,
+            id,
+        }
+    }
+
     fn finish_parsing(
         jsonrpc: serde_json::Value,
         method: serde_json::Value,

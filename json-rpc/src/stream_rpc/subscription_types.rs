@@ -211,10 +211,12 @@ where
 mod tests {
     use super::*;
     use crate::{
-        stream_rpc::tests::util::{create_client_connection, timeout},
+        stream_rpc::{
+            errors::StreamError,
+            tests::util::{create_client_connection, timeout},
+        },
         tests::utils::MockDiemDB,
     };
-    use diem_json_rpc_types::stream::errors::StreamError;
     use serde::{Deserialize, Serialize};
     use std::time::Instant;
     use tokio::sync::mpsc::Receiver;

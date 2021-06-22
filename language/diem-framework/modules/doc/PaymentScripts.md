@@ -145,11 +145,8 @@ Successful execution of this script emits two events:
 <summary>Specification</summary>
 
 
-TODO(timeout): this currently times out
 
-
-<pre><code><b>pragma</b> verify = <b>false</b>;
-<b>include</b> <a href="PaymentScripts.md#0x1_PaymentScripts_PeerToPeer">PeerToPeer</a>&lt;Currency&gt;;
+<pre><code><b>include</b> <a href="PaymentScripts.md#0x1_PaymentScripts_PeerToPeer">PeerToPeer</a>&lt;Currency&gt;;
 <b>include</b> <a href="DualAttestation.md#0x1_DualAttestation_AssertPaymentOkAbortsIf">DualAttestation::AssertPaymentOkAbortsIf</a>&lt;Currency&gt;{
     payer: <a href="../../../../../../move-stdlib/docs/Signer.md#0x1_Signer_spec_address_of">Signer::spec_address_of</a>(payer),
     value: amount
@@ -266,11 +263,8 @@ Successful execution of this script emits two events:
 <summary>Specification</summary>
 
 
-TODO(timeout): this currently times out
 
-
-<pre><code><b>pragma</b> verify = <b>false</b>;
-<b>include</b> <a href="PaymentScripts.md#0x1_PaymentScripts_PeerToPeer">PeerToPeer</a>&lt;Currency&gt;{payee: <a href="../../../../../../move-stdlib/docs/Signer.md#0x1_Signer_spec_address_of">Signer::spec_address_of</a>(payee)};
+<pre><code><b>include</b> <a href="PaymentScripts.md#0x1_PaymentScripts_PeerToPeer">PeerToPeer</a>&lt;Currency&gt;{payee: <a href="../../../../../../move-stdlib/docs/Signer.md#0x1_Signer_spec_address_of">Signer::spec_address_of</a>(payee)};
 </code></pre>
 
 

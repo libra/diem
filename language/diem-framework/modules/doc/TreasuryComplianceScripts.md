@@ -510,13 +510,6 @@ Only the account with a Preburn resource or PreburnQueue resource can preburn [[
 </code></pre>
 
 
-TODO(timeout): this currently times out
-
-
-<pre><code><b>pragma</b> verify = <b>false</b>;
-</code></pre>
-
-
 
 </details>
 

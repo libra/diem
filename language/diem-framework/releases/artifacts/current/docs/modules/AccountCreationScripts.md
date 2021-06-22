@@ -186,6 +186,13 @@ This is emitted on the new Child VASPS's <code><a href="DiemAccount.md#0x1_DiemA
 <b>aborts_if</b> child_initial_balance &gt; max_u64() <b>with</b> <a href="../../../../../../move-stdlib/docs/Errors.md#0x1_Errors_LIMIT_EXCEEDED">Errors::LIMIT_EXCEEDED</a>;
 <b>include</b> (child_initial_balance &gt; 0) ==&gt;
     <a href="DiemAccount.md#0x1_DiemAccount_ExtractWithdrawCapAbortsIf">DiemAccount::ExtractWithdrawCapAbortsIf</a>{sender_addr: parent_addr};
+<b>include</b> (child_initial_balance &gt; 0) ==&gt; <a href="DualAttestation.md#0x1_DualAttestation_AssertPaymentOkAbortsIf">DualAttestation::AssertPaymentOkAbortsIf</a>&lt;CoinType&gt;{
+    payer: parent_addr,
+    payee: child_address,
+    metadata: x"",
+    metadata_signature: x"",
+    value: child_initial_balance
+};
 <b>include</b> (child_initial_balance) &gt; 0 ==&gt;
     <a href="DiemAccount.md#0x1_DiemAccount_PayFromAbortsIfRestricted">DiemAccount::PayFromAbortsIfRestricted</a>&lt;CoinType&gt;{
         cap: parent_cap,
@@ -207,14 +214,6 @@ This is emitted on the new Child VASPS's <code><a href="DiemAccount.md#0x1_DiemA
     <a href="../../../../../../move-stdlib/docs/Errors.md#0x1_Errors_NOT_PUBLISHED">Errors::NOT_PUBLISHED</a>,
     <a href="../../../../../../move-stdlib/docs/Errors.md#0x1_Errors_INVALID_STATE">Errors::INVALID_STATE</a>,
     <a href="../../../../../../move-stdlib/docs/Errors.md#0x1_Errors_INVALID_ARGUMENT">Errors::INVALID_ARGUMENT</a>;
-<b>include</b> <a href="DiemAccount.md#0x1_DiemAccount_MakeAccountEmits">DiemAccount::MakeAccountEmits</a>{new_account_address: child_address};
-<b>include</b> child_initial_balance &gt; 0 ==&gt;
-    <a href="DiemAccount.md#0x1_DiemAccount_PayFromEmits">DiemAccount::PayFromEmits</a>&lt;CoinType&gt;{
-        cap: parent_cap,
-        payee: child_address,
-        amount: child_initial_balance,
-        metadata: x"",
-    };
 </code></pre>
 
 
@@ -223,13 +222,6 @@ Only Parent VASP accounts can create Child VASP accounts [[A7]][ROLE].
 
 
 <pre><code><b>include</b> <a href="Roles.md#0x1_Roles_AbortsIfNotParentVasp">Roles::AbortsIfNotParentVasp</a>{account: parent_vasp};
-</code></pre>
-
-
-TODO(timeout): this currently times out
-
-
-<pre><code><b>pragma</b> verify = <b>false</b>;
 </code></pre>
 
 

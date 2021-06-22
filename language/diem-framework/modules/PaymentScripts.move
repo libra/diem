@@ -134,9 +134,6 @@ module PaymentScripts {
     }
 
     spec peer_to_peer_with_metadata {
-        /// TODO(timeout): this currently times out
-        pragma verify = false;
-
         include PeerToPeer<Currency>;
         include DualAttestation::AssertPaymentOkAbortsIf<Currency>{
             payer: Signer::spec_address_of(payer),
@@ -145,9 +142,6 @@ module PaymentScripts {
     }
 
     spec peer_to_peer_by_signers {
-        /// TODO(timeout): this currently times out
-        pragma verify = false;
-
         include PeerToPeer<Currency>{payee: Signer::spec_address_of(payee)};
     }
 

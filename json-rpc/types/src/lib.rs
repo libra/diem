@@ -10,7 +10,7 @@ pub mod views;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum JsonRpcVersion {
     #[serde(rename = "2.0")]
     V2,

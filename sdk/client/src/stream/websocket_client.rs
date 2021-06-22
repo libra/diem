@@ -9,8 +9,8 @@ use crate::{
 use diem_types::event::EventKey;
 use std::{
     sync::{atomic::AtomicU64, Arc},
-    time::Duration,
 };
+use futures::{SinkExt, StreamExt};
 
 use tokio_tungstenite::{
     connect_async_with_config,
@@ -27,7 +27,7 @@ use diem_json_rpc_types::{
 };
 
 pub struct WebsocketClient {
-    stream: Arc<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>,
+    stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
     next_id: AtomicU64,
 }
 
@@ -37,16 +37,15 @@ impl WebsocketClient {
         websocket_config: Option<WebSocketConfig>,
     ) -> Result<Self, tungstenite::Error> {
         let request = Request::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap()
-            .get(url.into())
-            .header(reqwest::header::USER_AGENT, USER_AGENT);
+            .header(reqwest::header::USER_AGENT, USER_AGENT)
+            .uri(url.into())
+            .method("GET")
+            .body(())?;
 
         let (stream, _) = connect_async_with_config(request, websocket_config).await?;
 
         Ok(Self {
-            stream: Arc::new(stream),
+            stream,
             next_id: AtomicU64::new(0),
         })
     }
@@ -84,12 +83,23 @@ impl WebsocketClient {
     }
 
     pub async fn send_request(&mut self, request: &StreamJsonRpcRequest) -> Result<()> {
-        self.send(serde_json::to_string(&request)?).await
+        let json = serde_json::to_string(&request)?;
+        self.send(json).await
     }
 
     pub async fn send(&mut self, request_json: String) -> Result<()> {
-        self.stream.send(Message::text(request_json)).await?;
+        self.stream.send(Message::text(request_json)).await.map_err(Error::encode)?;
         Ok(())
+    }
+
+    pub async fn get_message(mut self) -> String {
+        while let Some(msg) = self.stream.next().await {
+            let msg = msg.unwrap();
+            if msg.is_text(){
+                return msg.to_string();
+            }
+        }
+        unreachable!()
     }
 
     fn get_next_id(&self) -> u64 {

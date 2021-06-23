@@ -23,7 +23,7 @@ impl StreamJsonRpcResponseView {
         value: serde_json::Value,
     ) -> Result<StreamJsonRpcResponseView, serde_json::Error> {
         // The first message in a stream is a `SubscribeResult`
-        if let Some(_) = value.get("status") {
+        if value.get("status").is_some() {
             return Ok(Self::SubscribeResult(serde_json::from_value(value)?));
         }
         Ok(match method {
@@ -126,12 +126,10 @@ mod tests {
         );
         assert_eq!(response.jsonrpc, JsonRpcVersion::V2);
 
-        let result = response
+        response
             .parse_result(method)
             .expect("Err when parsing result")
-            .expect("None when parsing result");
-
-        result
+            .expect("None when parsing result")
     }
 
     #[test]
@@ -148,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_data_result_parsing() {
-        let input = serde_json::json!({"jsonrpc":"2.0","id":"my-id","result":{"version":124,"transaction":{"type":"blockmetadata","timestamp_usecs":1624389817286906 as u64},"hash":"496176cd664651d81673832598c2dcdc47e9d2f900121a464351610bfa6d29fa","bytes":"0000","events":[],"vm_status":{"type":"executed"},"gas_used":100000000}}).to_string();
+        let input = serde_json::json!({"jsonrpc":"2.0","id":"my-id","result":{"version":124,"transaction":{"type":"blockmetadata","timestamp_usecs":1624389817286906_u64},"hash":"496176cd664651d81673832598c2dcdc47e9d2f900121a464351610bfa6d29fa","bytes":"0000","events":[],"vm_status":{"type":"executed"},"gas_used":100000000}}).to_string();
         let result = response_view_helper(&StreamMethod::SubscribeToTransactions, input);
 
         let expected = StreamJsonRpcResponseView::Transaction(TransactionView {

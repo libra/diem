@@ -21,6 +21,7 @@ use diem_sdk::{
     },
 };
 use std::convert::TryFrom;
+use tokio::runtime::Runtime;
 
 mod env;
 pub use env::{Coffer, Environment};
@@ -230,6 +231,25 @@ fn get_events() -> Result<()> {
 
     let currencies = client.get_currencies()?.into_inner();
 
+    for currency in currencies {
+        client.get_events(currency.mint_events_key, 0, 10)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn get_events_via_websocket_stream() -> Result<()> {
+    let env = Environment::from_env();
+    let client = env.client();
+
+    let rt = Runtime::new().unwrap();
+    let ws_client = rt
+        .block_on(env.websocket_client())
+        .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
+
+    let currencies = client.get_currencies()?.into_inner();
     for currency in currencies {
         client.get_events(currency.mint_events_key, 0, 10)?;
     }

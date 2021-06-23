@@ -24,3 +24,6 @@ json_rpc:
     # This specifies your JSON-RPC endpoint. This runs locally to prevent remote queries, setting
     # it to 0.0.0.0:8080 would open it to all remote connections that can connect to that computer.
     address: 127.0.0.1:8080
+    # Enable streaming RPC (i.e JSON-RPC over websockets)
+    stream_rpc:
+        enabled: true

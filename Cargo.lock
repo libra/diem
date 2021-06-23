@@ -1553,6 +1553,7 @@ name = "diem-client"
 version = "0.0.2"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bcs",
  "diem-crypto",
  "diem-json-rpc-types",
@@ -1947,7 +1948,7 @@ dependencies = [
  "tokio",
  "tokio-retry",
  "tokio-stream",
- "tokio-tungstenite 0.13.0",
+ "tokio-tungstenite 0.14.0",
  "vm-genesis",
  "vm-validator",
  "warp",
@@ -2660,7 +2661,6 @@ dependencies = [
  "syn 1.0.72",
  "tiny-keccak",
  "tokio",
- "tokio-tungstenite 0.13.0",
  "tokio-util",
  "toml",
  "tracing",
@@ -6738,6 +6738,7 @@ dependencies = [
  "diem-workspace-hack",
  "once_cell",
  "rand 0.8.3",
+ "tokio",
 ]
 
 [[package]]

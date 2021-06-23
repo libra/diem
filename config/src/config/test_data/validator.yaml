@@ -55,3 +55,8 @@ validator_network:
         ca_certificate: "/full/path/to/certificate"
         token:
             from_disk: "/full/path/to/token"
+
+json_rpc:
+    # Enable streaming RPC (i.e JSON-RPC over websockets)
+    stream_rpc:
+        enabled: true

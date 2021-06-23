@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use diem_sdk::{
-    client::{BlockingClient, FaucetClient},
+    client::{BlockingClient, FaucetClient, WebsocketClient},
     transaction_builder::{Currency, TransactionFactory},
     types::{chain_id::ChainId, transaction::authenticator::AuthenticationKey, LocalAccount},
 };
@@ -54,8 +54,16 @@ impl Environment {
         &self.json_rpc_url
     }
 
+    pub fn websocket_rpc_url(&self) -> String {
+        self.json_rpc_url.replace("http://", "ws://") + "/v1/stream/ws"
+    }
+
     pub fn client(&self) -> BlockingClient {
         BlockingClient::new(self.json_rpc_url())
+    }
+
+    pub async fn websocket_client(&self) -> diem_sdk::client::Result<WebsocketClient> {
+        WebsocketClient::new(self.websocket_rpc_url(), None).await
     }
 
     pub fn coffer(&self) -> &Coffer {
@@ -86,5 +94,28 @@ impl Coffer {
                 .fund(currency.as_str(), auth_key, amount)
                 .map_err(Into::into),
         }
+    }
+}
+
+///////////
+// Tests //
+///////////
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_websocket_url() {
+        let json_rpc_url = "http://localhost:1337".to_string();
+        let coffer = FaucetClient::new(json_rpc_url.clone(), json_rpc_url.clone());
+        let env = Environment::new(
+            json_rpc_url.clone(),
+            Coffer::Faucet(coffer),
+            ChainId::test(),
+        );
+
+        let expected = "ws://localhost:1337/v1/stream/ws";
+        assert_eq!(env.websocket_rpc_url(), expected)
     }
 }

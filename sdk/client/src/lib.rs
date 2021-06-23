@@ -41,8 +41,7 @@ cfg_async_or_blocking! {
 }
 
 cfg_websocket! {
-    mod stream;
-    pub use stream::websocket_client::WebsocketClient;
+    pub mod stream;
 }
 
 mod state;

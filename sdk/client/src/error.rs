@@ -5,7 +5,7 @@
 // 'blocking' feature are enabled
 #![allow(dead_code)]
 
-use diem_json_rpc_types::errors::JsonRpcError;
+use diem_json_rpc_types::{errors::JsonRpcError, stream::response::StreamJsonRpcResponse};
 
 cfg_websocket! {
     use tokio_tungstenite::tungstenite;
@@ -40,12 +40,15 @@ enum Kind {
     Decode,
     InvalidProof,
     Unknown,
+
     // Streaming Errors
     Encode,
     ConnectionClosed,
     MessageTooLarge,
     HttpError,
     TlsError,
+    IdAlreadyUsed,
+    IdNotFound(Option<StreamJsonRpcResponse>),
     QueueFullError,
 }
 
@@ -72,6 +75,8 @@ impl Error {
             | Kind::MessageTooLarge
             | Kind::HttpError
             | Kind::TlsError
+            | Kind::IdAlreadyUsed
+            | Kind::IdNotFound(_)
             | Kind::QueueFullError => false,
         }
     }
@@ -183,6 +188,14 @@ impl Error {
 
         pub(crate) fn connection_closed<E: Into<BoxError>>(e: Option<E>) -> Self {
             Self::new(Kind::ConnectionClosed, e)
+        }
+
+        pub(crate) fn subscription_id_already_used<E: Into<BoxError>>(e: Option<E>) -> Self {
+            Self::new(Kind::IdAlreadyUsed, e)
+        }
+
+        pub(crate) fn subscription_id_not_found<E: Into<BoxError>>(msg: Option<StreamJsonRpcResponse>, e: Option<E>) -> Self {
+            Self::new(Kind::IdNotFound(msg), e)
         }
     }
 }

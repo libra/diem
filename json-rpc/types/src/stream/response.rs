@@ -114,10 +114,8 @@ impl SubscribeResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::views::{BytesView, TransactionDataView, VMStatusView};
     use diem_crypto::HashValue;
-    use crate::views::TransactionDataView;
-    use crate::views::BytesView;
-    use crate::views::VMStatusView;
 
     fn response_view_helper(method: &StreamMethod, input: String) -> StreamJsonRpcResponseView {
         let response: StreamJsonRpcResponse =
@@ -150,14 +148,18 @@ mod tests {
 
     #[test]
     fn test_data_result_parsing() {
-        // 022099ba24b9f96dc26b96e84e80d19e861fb5f47a54182286126787f36e382b3b567c00000000000000fa4009ba5fc5050001652f27413456938eaa059f65231647cc652f27413456938eaa059f65231647cc
         let input = serde_json::json!({"jsonrpc":"2.0","id":"my-id","result":{"version":124,"transaction":{"type":"blockmetadata","timestamp_usecs":1624389817286906 as u64},"hash":"496176cd664651d81673832598c2dcdc47e9d2f900121a464351610bfa6d29fa","bytes":"0000","events":[],"vm_status":{"type":"executed"},"gas_used":100000000}}).to_string();
         let result = response_view_helper(&StreamMethod::SubscribeToTransactions, input);
 
         let expected = StreamJsonRpcResponseView::Transaction(TransactionView {
             version: 124,
-            transaction: TransactionDataView::BlockMetadata { timestamp_usecs: 1624389817286906 },
-            hash: HashValue::from_hex("496176cd664651d81673832598c2dcdc47e9d2f900121a464351610bfa6d29fa").expect("Could not parse HashValue hex"),
+            transaction: TransactionDataView::BlockMetadata {
+                timestamp_usecs: 1624389817286906,
+            },
+            hash: HashValue::from_hex(
+                "496176cd664651d81673832598c2dcdc47e9d2f900121a464351610bfa6d29fa",
+            )
+            .expect("Could not parse HashValue hex"),
             bytes: BytesView::from(vec![0, 0]),
             events: vec![],
             vm_status: VMStatusView::Executed,

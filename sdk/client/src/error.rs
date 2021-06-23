@@ -7,6 +7,10 @@
 
 use diem_json_rpc_types::errors::JsonRpcError;
 
+cfg_websocket! {
+    use tokio_tungstenite::tungstenite;
+}
+
 pub type Result<T, E = Error> = ::std::result::Result<T, E>;
 
 #[derive(Debug)]
@@ -36,6 +40,13 @@ enum Kind {
     Decode,
     InvalidProof,
     Unknown,
+    // Streaming Errors
+    Encode,
+    ConnectionClosed,
+    MessageTooLarge,
+    HttpError,
+    TlsError,
+    QueueFullError,
 }
 
 impl Error {
@@ -55,7 +66,13 @@ impl Error {
             | Kind::Batch
             | Kind::Decode
             | Kind::InvalidProof
-            | Kind::Unknown => false,
+            | Kind::Unknown
+            | Kind::Encode
+            | Kind::ConnectionClosed
+            | Kind::MessageTooLarge
+            | Kind::HttpError
+            | Kind::TlsError
+            | Kind::QueueFullError => false,
         }
     }
 
@@ -102,6 +119,10 @@ impl Error {
         Self::new(Kind::Decode, Some(e))
     }
 
+    pub(crate) fn encode<E: Into<BoxError>>(e: E) -> Self {
+        Self::new(Kind::Decode, Some(e))
+    }
+
     pub(crate) fn invalid_proof<E: Into<BoxError>>(e: E) -> Self {
         Self::new(Kind::InvalidProof, Some(e))
     }
@@ -136,6 +157,32 @@ impl Error {
             } else {
                 Self::unknown(e)
             }
+        }
+    }
+
+    cfg_websocket! {
+           pub(crate) fn from_tungstenite_error(e: tungstenite::Error) -> Self {
+               match e {
+                   tungstenite::Error::ConnectionClosed => Self::connection_closed(None::<Error>),
+                   tungstenite::Error::AlreadyClosed => Self::connection_closed(None::<Error>),
+                   tungstenite::Error::Io(e) => Self::connection_closed(Some(e)),
+                   tungstenite::Error::Tls(e) => Self::new(Kind::TlsError, Some(e)),
+                   tungstenite::Error::Capacity(e) => Self::new(Kind::MessageTooLarge, Some(e)),
+                   tungstenite::Error::Protocol(e) => Self::connection_closed(Some(e)),
+                   tungstenite::Error::SendQueueFull(_) => Self::new(Kind::QueueFullError, None::<Error>),
+                   tungstenite::Error::Utf8 => Self::encode(e),
+                   tungstenite::Error::Url(e) => Self::new(Kind::Request, Some(e)),
+                   tungstenite::Error::Http(e) => Self::new(Kind::HttpStatus(e.status().as_u16()), None::<Error>),
+                   tungstenite::Error::HttpFormat(e) => Self::new(Kind::HttpError, Some(e)),
+               }
+           }
+
+        pub(crate) fn from_http_error(e: tungstenite::http::Error) -> Self {
+            Self::new(Kind::HttpError, Some(e))
+        }
+
+        pub(crate) fn connection_closed<E: Into<BoxError>>(e: Option<E>) -> Self {
+            Self::new(Kind::ConnectionClosed, e)
         }
     }
 }

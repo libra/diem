@@ -1558,6 +1558,7 @@ dependencies = [
  "diem-json-rpc-types",
  "diem-types",
  "diem-workspace-hack",
+ "futures",
  "hex",
  "ipnet",
  "move-core-types",

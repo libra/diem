@@ -7,6 +7,11 @@ use crate::test_utils::{
     setup_swarm_and_client_proxy,
 };
 use cli::client_proxy::ClientProxy;
+
+use diem_client::stream::{
+    request::StreamMethod, response::StreamJsonRpcResponseView, StreamingClient,
+};
+use diem_json_rpc_types::Id;
 use diem_types::{ledger_info::LedgerInfo, waypoint::Waypoint};
 
 #[test]
@@ -26,6 +31,57 @@ fn test_create_mint_transfer_block_metadata() {
         "BlockMetadata txn not produced, current version: {}",
         version
     );
+}
+
+use std::time::Duration;
+use tokio::{runtime::Runtime, time::timeout};
+
+#[test]
+fn test_get_events_via_websocket_stream() {
+    let (_env, client) = setup_swarm_and_client_proxy(4, 3);
+    let ms_500 = Duration::from_millis(500);
+    let rt = Runtime::new().unwrap();
+    let ws_client = rt
+        .block_on(timeout(ms_500, client.websocket_client()))
+        .unwrap_or_else(|e| panic!("Timeout connecting to WS endpoint: {}", e))
+        .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
+
+    let (mut s_client, _) = rt
+        .block_on(timeout(
+            Duration::from_millis(100),
+            StreamingClient::new(ws_client, 10),
+        ))
+        .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e));
+    let currencies = client
+        .client
+        .get_currency_info()
+        .expect("Could not get currency info");
+
+    for (i, currency) in currencies.iter().enumerate() {
+        let (id, mut channel) = rt
+            .block_on(s_client.subscribe_events(currency.mint_events_key, 0))
+            .unwrap_or_else(|e| {
+                panic!("Error subscribing to currency '{}': {}", &currency.code, e)
+            });
+
+        assert_eq!(id, Id::Number(i as u64));
+
+        let response = rt
+            .block_on(timeout(ms_500, channel.recv()))
+            .unwrap_or_else(|e| panic!("Timeout getting message: {}", e))
+            .unwrap_or_else(|| panic!("Currency '{}' response is None", &currency.code))
+            .unwrap_or_else(|e| panic!("Currency '{}' response is Err: {}", &currency.code, e));
+
+        let response_view = response
+            .parse_result(&StreamMethod::SubscribeToTransactions)
+            .unwrap_or_else(|e| panic!("Currency '{}' response view is err: {}", &currency.code, e))
+            .unwrap_or_else(|| panic!("Currency '{}' response view is None", &currency.code));
+
+        match response_view {
+            StreamJsonRpcResponseView::SubscribeResult(_) => {}
+            _ => panic!("Expected 'SubscribeResult', but got: {:?}", response_view),
+        }
+    }
 }
 
 #[test]

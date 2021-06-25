@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use diem_sdk::{
-    client::{BlockingClient, FaucetClient, WebsocketClient},
+    client::{stream::WebsocketClient, BlockingClient, FaucetClient},
     transaction_builder::{Currency, TransactionFactory},
     types::{chain_id::ChainId, transaction::authenticator::AuthenticationKey, LocalAccount},
 };
@@ -109,11 +109,7 @@ mod test {
     fn test_websocket_url() {
         let json_rpc_url = "http://localhost:1337".to_string();
         let coffer = FaucetClient::new(json_rpc_url.clone(), json_rpc_url.clone());
-        let env = Environment::new(
-            json_rpc_url.clone(),
-            Coffer::Faucet(coffer),
-            ChainId::test(),
-        );
+        let env = Environment::new(json_rpc_url, Coffer::Faucet(coffer), ChainId::test());
 
         let expected = "ws://localhost:1337/v1/stream/ws";
         assert_eq!(env.websocket_rpc_url(), expected)

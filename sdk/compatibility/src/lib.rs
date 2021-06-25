@@ -7,6 +7,7 @@
 
 use anyhow::Result;
 use diem_sdk::{
+    client::stream::{request::StreamMethod, response::StreamJsonRpcResponseView, StreamingClient},
     crypto::HashValue,
     transaction_builder::{
         stdlib::{self, ScriptCall},
@@ -20,6 +21,7 @@ use diem_sdk::{
         AccountKey,
     },
 };
+
 use std::convert::TryFrom;
 use tokio::runtime::Runtime;
 
@@ -249,9 +251,29 @@ fn get_events_via_websocket_stream() -> Result<()> {
         .block_on(env.websocket_client())
         .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
 
+    let (mut s_client, _) = rt.block_on(StreamingClient::new(ws_client, 10));
     let currencies = client.get_currencies()?.into_inner();
     for currency in currencies {
-        client.get_events(currency.mint_events_key, 0, 10)?;
+        let (_, mut channel) = rt
+            .block_on(s_client.subscribe_events(currency.mint_events_key, 0))
+            .unwrap_or_else(|e| {
+                panic!("Error subscribing to currency '{}': {}", &currency.code, e)
+            });
+
+        let response = rt
+            .block_on(channel.recv())
+            .unwrap_or_else(|| panic!("Currency '{}' response is None", &currency.code))
+            .unwrap_or_else(|e| panic!("Currency '{}' response is Err: {}", &currency.code, e));
+
+        let response_view = response
+            .parse_result(&StreamMethod::SubscribeToTransactions)
+            .unwrap_or_else(|e| panic!("Currency '{}' response view is err: {}", &currency.code, e))
+            .unwrap_or_else(|| panic!("Currency '{}' response view is None", &currency.code));
+
+        match response_view {
+            StreamJsonRpcResponseView::SubscribeResult(_) => {}
+            _ => panic!("Expected 'SubscribeResult', but got: {:?}", response_view),
+        }
     }
 
     Ok(())

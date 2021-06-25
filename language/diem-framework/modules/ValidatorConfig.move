@@ -14,6 +14,7 @@ module ValidatorConfig {
     use 0x1::Signer;
     use 0x1::Roles;
     use 0x1::ValidatorOperatorConfig;
+    friend 0x1::DiemAccount;
 
     struct Config has copy, drop, store {
         consensus_pubkey: vector<u8>,
@@ -47,7 +48,7 @@ module ValidatorConfig {
     /// Publishes a mostly empty ValidatorConfig struct. Eventually, it
     /// will have critical info such as keys, network addresses for validators,
     /// and the address of the validator operator.
-    public fun publish(
+    public(friend) fun publish(
         validator_account: &signer,
         dr_account: &signer,
         human_name: vector<u8>,

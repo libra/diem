@@ -121,7 +121,7 @@ pub struct ClientProxy {
     /// temp files (alive for duration of program)
     temp_files: Vec<PathBuf>,
     /// Host of the node that client connects to
-    url: Url,
+    pub url: Url,
 }
 
 impl ClientProxy {
@@ -224,7 +224,7 @@ impl ClientProxy {
             self.url.port().unwrap()
         );
         println!("ws_url: {}", &ws_url);
-        WebsocketClient::new(&ws_url, None).await
+        WebsocketClient::new(ws_url, None).await
     }
 
     /// Gets account data for the indexed address

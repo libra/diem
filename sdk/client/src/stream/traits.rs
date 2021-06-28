@@ -14,6 +14,7 @@ use diem_json_rpc_types::{
     Id,
 };
 use diem_types::event::EventKey;
+use tokio::sync::mpsc;
 
 /// Interface for various transports
 #[async_trait]
@@ -22,7 +23,7 @@ pub trait StreamingClientTransport: std::marker::Send + Sync {
 
     fn get_next_id(&self) -> Id;
 
-    async fn get_message(&mut self) -> Result<StreamJsonRpcResponse>;
+    fn get_stream(self) -> (mpsc::Receiver<Result<StreamJsonRpcResponse>>, Self);
 
     async fn send_method_request(
         &mut self,
@@ -30,7 +31,7 @@ pub trait StreamingClientTransport: std::marker::Send + Sync {
         id: Option<Id>,
     ) -> Result<Id> {
         let id = id.unwrap_or_else(|| self.get_next_id());
-        let request = StreamJsonRpcRequest::new(request, id);
+        let request = StreamJsonRpcRequest::new(request, id.clone());
         self.send_request(&request).await
     }
 

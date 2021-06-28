@@ -15,28 +15,40 @@ pub type StreamingClientReceiver = mpsc::Receiver<Result<StreamJsonRpcResponse>>
 pub type StreamingClientSender = mpsc::Sender<Result<StreamJsonRpcResponse>>;
 pub type SubscriptionStreamResult = Result<(Id, StreamingClientReceiver)>;
 
-pub struct SubscriptionChannelManager<C: StreamingClientTransport + 'static> {
-    client: Arc<RwLock<C>>,
+pub struct SubscriptionChannelManager {
+    stream: StreamingClientReceiver,
     subscriptions: Arc<RwLock<HashMap<Id, StreamingClientSender>>>,
     error_sender: StreamingClientSender,
 }
 
-impl<C: StreamingClientTransport + 'static> SubscriptionChannelManager<C> {
+impl SubscriptionChannelManager {
     pub fn new(
-        client: Arc<RwLock<C>>,
+        stream: StreamingClientReceiver,
         subscriptions: Arc<RwLock<HashMap<Id, StreamingClientSender>>>,
         error_sender: StreamingClientSender,
     ) -> Self {
         Self {
-            client,
+            stream,
             subscriptions,
             error_sender,
         }
     }
 
     /// Returning an actual `Err` from here signals some kind of connection problem
-    pub async fn handle_next_message(&self) -> Result<()> {
-        let msg = self.client.write().await.get_message().await?;
+    pub async fn handle_next_message(&mut self) -> Result<()> {
+        // make sure we time out if there is no message immediately available, so the lock on `client` doesn't get held indefinitely
+        let msg = match self.stream.recv().await {
+            None => return Err(Error::connection_closed(None::<Error>)),
+            Some(msg) => msg,
+        };
+
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                self.error_sender.send(Err(e)).await.ok();
+                return Ok(());
+            }
+        };
 
         // If there is no ID, we can't route this to anywhere but the catchall '_error' channel
         let id = match &msg.id {
@@ -60,7 +72,10 @@ impl<C: StreamingClientTransport + 'static> SubscriptionChannelManager<C> {
             // No such subscription exists
             None => {
                 self.error_sender
-                    .send(Err(Error::subscription_id_not_found(Some(msg), None::<Error>)))
+                    .send(Err(Error::subscription_id_not_found(
+                        Some(msg),
+                        None::<Error>,
+                    )))
                     .await
                     .ok();
                 self.unsubscribe(&id).await;
@@ -70,11 +85,7 @@ impl<C: StreamingClientTransport + 'static> SubscriptionChannelManager<C> {
     }
 
     pub async fn unsubscribe(&self, id: &Id) {
-        self
-            .subscriptions
-            .write()
-            .await
-            .remove(id);
+        self.subscriptions.write().await.remove(id);
     }
 }
 
@@ -91,10 +102,13 @@ impl<C: StreamingClientTransport + 'static> StreamingClient<C> {
         let subscriptions = Arc::new(RwLock::new(HashMap::new()));
         let (error_sender, error_receiver) =
             mpsc::channel::<Result<StreamJsonRpcResponse>>(channel_size);
+
         subscriptions
             .write()
             .await
             .insert(Id::String(Box::from("_errors")), error_sender.clone());
+
+        let (stream, client) = client.get_stream();
 
         let mut sct = Self {
             client: Arc::new(RwLock::new(client)),
@@ -104,7 +118,7 @@ impl<C: StreamingClientTransport + 'static> StreamingClient<C> {
             channel_task: None,
         };
 
-        sct.start_channel_task();
+        sct.start_channel_task(stream);
 
         (sct, error_receiver)
     }
@@ -134,7 +148,8 @@ impl<C: StreamingClientTransport + 'static> StreamingClient<C> {
         event_seq_num: u64,
     ) -> SubscriptionStreamResult {
         let (id, receiver) = self.get_and_register_id().await?;
-        let res = self
+
+        let mut res = self
             .client
             .write()
             .await
@@ -154,18 +169,15 @@ impl<C: StreamingClientTransport + 'static> StreamingClient<C> {
         Ok(receiver)
     }
 
-    fn start_channel_task(&mut self) {
-        let scm = SubscriptionChannelManager::new(
-            self.client.clone(),
+    fn start_channel_task(&mut self, stream: StreamingClientReceiver) {
+        let mut scm = SubscriptionChannelManager::new(
+            stream,
             self.subscriptions.clone(),
             self.error_sender.clone(),
         );
         self.channel_task = Some(tokio::task::spawn(async move {
             loop {
-                let res = scm.handle_next_message().await;
-                if res.is_err() {
-                    return res;
-                }
+                scm.handle_next_message().await?;
             }
         }));
     }

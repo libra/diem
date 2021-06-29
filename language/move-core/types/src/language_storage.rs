@@ -151,3 +151,87 @@ impl Display for TypeTag {
         }
     }
 }
+
+// =================================================================================================
+// Type definition with free type variables
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub enum Type {
+    Bool,
+    U8,
+    U64,
+    U128,
+    Address,
+    Signer,
+    Vector(Box<Type>),
+    Struct(StructType),
+    TypeArg(usize),
+}
+
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct StructType {
+    pub address: AccountAddress,
+    pub module: Identifier,
+    pub name: Identifier,
+    pub type_params: Vec<Type>,
+}
+
+impl Type {
+    pub fn is_free(&self) -> bool {
+        match self {
+            Type::TypeArg(_) => true,
+            Type::Bool | Type::U8 | Type::U64 | Type::U128 | Type::Address | Type::Signer | Type::Vector(_) => false,
+            Type::Struct(s) => s.is_free(),
+        }
+    }
+    pub fn subst(self, type_args: &[TypeTag]) -> Option<TypeTag> {
+        Some(match self {
+            Type::Bool => TypeTag::Bool,
+            Type::U8 => TypeTag::U8,
+            Type::U64 => TypeTag::U64,
+            Type::U128 => TypeTag::U128,
+            Type::Address => TypeTag::Address,
+            Type::Signer => TypeTag::Signer,
+            Type::Vector(ty) => TypeTag::Vector(Box::new(ty.subst(type_args)?)),
+            Type::Struct(s) => TypeTag::Struct(s.subst(type_args)?),
+            Type::TypeArg(idx) => type_args
+                .get(idx)?
+                .clone(),
+        })
+    }
+
+    pub fn to_type_tag(self) -> Option<TypeTag> {
+        if self.is_free() {
+            None
+        } else {
+            self.subst(&[])
+        }
+    }
+}
+
+impl StructType {
+    pub fn is_free(&self) -> bool {
+        self.type_params.iter().all(|ty| ty.is_free())
+    }
+
+    pub fn subst(self, type_args: &[TypeTag]) -> Option<StructTag> {
+        Some(StructTag {
+            address: self.address,
+            module: self.module,
+            name: self.name,
+            type_params: self
+                .type_params
+                .into_iter()
+                .map(|ty| ty.subst(type_args))
+                .collect::<Option<Vec<_>>>()?,
+        })
+    }
+
+    pub fn to_struct_tag(self) -> Option<StructTag> {
+        if self.is_free() {
+            None
+        } else {
+            self.subst(&[])
+        }
+    }
+}

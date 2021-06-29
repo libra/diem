@@ -1,272 +1,401 @@
-#!/bin/bash
+#!/usr/bin/env python3
 # Copyright (c) The Diem Core Contributors
 # SPDX-License-Identifier: Apache-2.0
-set -e
-set -o pipefail
 
-TAG=""
-PR=""
-WORKSPACE=""
-ENV=""
-LOCAL_BUILD=""
-LOCAL_SWARM=""
-EXIT_CODE=0
-# Default timeout is 45 mins
-TIMEOUT_SECS=2700
+import argparse, json, random, re, tempfile, time
+import getpass, os, subprocess, sys
 
-AWS_ACCOUNT=${AWS_ACCOUNT:-$(aws sts get-caller-identity --query Account --output text)}
+TAG = ""
+WORKSPACE = ""
+DEFL_TIMEOUT_SECS = 2700  # Default timeout is 45 mins
+USER = getpass.getuser()  # Use the current user for naming
+OUTPUT_TEE = os.getenv("FGI_OUTPUT_LOG", tempfile.mkstemp()[1])
 
-FORGE_K8S_CLUSTERS=(forge-1)
-K8S_CONTEXT_PATTERN="arn:aws:eks:us-west-2:${AWS_ACCOUNT}:cluster/libra-CLUSTERNAME"
-HELM_CHARTS_URL_PATTERN="s3://diem-testnet-CLUSTERNAME-helm/charts"
-GRAFANA_URL_PATTERN="http://mon.CLUSTERNAME.aws.hlw3truzy4ls.com"
+FORGE_K8S_CLUSTERS = ["rustietest"]
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+HEADER = "\033[95m"
+OKBLUE = "\033[94m"
+OKGREEN = "\033[92m"
+WARNING = "\033[93m"
+FAIL = "\033[91m"
+RESTORE = "\033[0m"
 
-# Colorize Output
-RESTORE=$(echo -en '\001\033[0m\002')
-BLUE=$(echo -en '\001\033[01;34m\002')
+# build the arg parser and return a tuple of (fgi args, forge args)
+def build_argparser():
+    parser = argparse.ArgumentParser(
+        description="Runs Forge tests on a kubernetes testnet backend"
+    )
+    parser.add_argument(
+        "--timeout-secs",
+        default=DEFL_TIMEOUT_SECS,
+        help="Timeout for the Forge pod in seconds",
+    )
+    parser.add_argument(
+        "--workspace",
+        "-W",
+        help="Workspace or cluster to run Forge on, rather than picking one at random",
+    )
+    parser.add_argument(
+        "--env",
+        "-E",
+        action="append",
+        default=[],
+        help="Extra environment variables to pass to Forge",
+    )
+    build_group = parser.add_mutually_exclusive_group()
+    build_group.add_argument("--tag", "-T", help="Image tag to use in Forge tests")
+    build_group.add_argument("--pr", "-p", help="PR to build Forge images from")
+    return parser.parse_known_args()
 
-join_args() {
-  retval_join_args=""
-  for var in "$@"
-  do
-    retval_join_args="${retval_join_args} \"${var}\""
-  done
-}
 
-join_env_vars() {
-  retval_join_env_vars=""
-  for var in "$@"
-  do
-    IFS='=' read -ra env_var <<< "$var"
-    retval_join_env_vars="{\"name\":\"${env_var[0]}\", \"value\":\"${env_var[1]}\"}, ${retval_join_env_vars}"
-  done
-}
+def random_cluster():
+    return random.choice(FORGE_K8S_CLUSTERS)
 
-# https://stackoverflow.com/a/5533586
-# This function shuffles the elements of an array named "array" in-place using the Knuth-Fisher-Yates shuffle algorithm
-shuffle() {
-   local i tmp size max rand
 
-   # $RANDOM % (i+1) is biased because of the limited range of $RANDOM
-   # Compensate by using a range which is a multiple of the array size.
-   size=${#array[*]}
-   max=$(( 32768 / size * size ))
+def get_cluster_context(cluster_name):
+    k8s_context_pattern = "arn:aws:eks:us-west-2:853397791086:cluster/libra-CLUSTERNAME"
+    return k8s_context_pattern.replace("CLUSTERNAME", cluster_name)
 
-   for ((i=size-1; i>0; i--)); do
-      while (( (rand=RANDOM) >= max )); do :; done
-      rand=$(( rand % (i+1) ))
-      tmp=${array[i]} array[i]=${array[rand]} array[rand]=$tmp
-   done
-}
+
+def get_grafana_url(cluster_name):
+    grafana_url_pattern = "http://mon.CLUSTERNAME.aws.hlw3truzy4ls.com"
+    return grafana_url_pattern.replace("CLUSTERNAME", cluster_name)
+
 
 # init the kube context for each available cluster
-kube_init_context () {
-  aws eks --region us-west-2 describe-cluster --name "libra-${FORGE_K8S_CLUSTERS[0]}" &>/dev/null || (echo "Failed to access EKS, try awsmfa?"; exit 1)
-  for cluster in "${FORGE_K8S_CLUSTERS[@]}"; do
-    aws eks --region us-west-2 update-kubeconfig --name "libra-${cluster}"
-  done
-}
+def kube_init_context():
+    try:
+        subprocess.run(
+            [
+                "aws",
+                "eks",
+                "--region",
+                "us-west-2",
+                "describe-cluster",
+                "--name",
+                f"libra-{FORGE_K8S_CLUSTERS[0]}",
+            ],
+            stdout=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        print("Failed to access EKS, try awsmfa?")
+        raise
+    for cluster in FORGE_K8S_CLUSTERS:
+        subprocess.run(
+            [
+                "aws",
+                "eks",
+                "--region",
+                "us-west-2",
+                "update-kubeconfig",
+                "--name",
+                f"libra-{cluster}",
+            ]
+        )
 
-# randomly select a cluster that is free
-kube_select_cluster () {
-  retval_kube_select_cluster=""
-  array=("${FORGE_K8S_CLUSTERS[@]}")
-  shuffle
-  local attempts
-  attempts=360
-  for attempt in $(seq 1 $attempts) ; do
-    for cluster in "${array[@]}"; do
-      local context running_pods pending_pods monitoring_healthy_containers
-      context=${K8S_CONTEXT_PATTERN/CLUSTERNAME/$cluster}
-      running_pods=$(kubectl --context="${context}" get pods -l app.kubernetes.io/name=forge --field-selector=status.phase==Running 2> /dev/null | grep -cv ^NAME || true)
-      pending_pods=$(kubectl --context="${context}" get pods -l app.kubernetes.io/name=forge --field-selector=status.phase==Pending 2> /dev/null | grep -cv ^NAME || true)
-      monitoring_healthy_containers=$(kubectl --context="${context}" get pod/diem-testnet-monitoring-0 | grep 'diem-testnet-monitoring-0' | awk '{print $2}')
-      if [[ "${pending_pods}" -gt 0 ]]; then
-        echo "${cluster} has ${pending_pods} pending pods. Skipping."
-      elif [[ ${monitoring_healthy_containers} != "3/3" ]]; then
-        echo "monitoring is not healthy for ${cluster}. Skipping."
-      elif [[ ${running_pods} -gt 0 ]]; then
-        echo "${cluster} has ${running_pods} running pods. Skipping."
-      else
-        retval_kube_select_cluster="${cluster}"
-        return
-      fi
-    done
-    echo "All clusters have jobs running on them. Retrying in 10 secs. ${attempt}/${attempts}"
-    sleep 10
-  done
-  echo "Failed to schedule job on a cluster as all are busy"
-  exit 1
-}
 
-# wait for the given pod to be scheduled
-kube_wait_pod () {
-  local pod_name context phase
-  pod_name="${1}"
-  context="${2}"
-  for i in {1..360} ; do
-    phase=$(kubectl --context="${context}" get pod "${pod_name}" -o jsonpath="{.status.phase}" || echo -n "kubectlfailed")
-    if [[ "${phase}" == "kubectlfailed" ]]; then
-        echo "kubectl get pod ${pod_name} failed. Retrying."
-        sleep 10
-        continue
-    fi
+def get_forge_pods_by_phase(context, phase):
+    return json.loads(
+        subprocess.check_output(
+            [
+                "kubectl",
+                "-o=json",
+                f"--context={context}",
+                "get",
+                "pods",
+                "--selector=app.kubernetes.io/name=forge",
+                f"--field-selector=status.phase=={phase}",
+            ],
+            stderr=subprocess.DEVNULL,
+            encoding="UTF-8",
+        )
+    )
 
-    # pod is either Running, Succeeded, or Failed
-    # https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-phase
-    if [[ $phase != "Pending" &&  $phase != "Unknown" ]]; then
-      echo "${pod_name} reached phase: ${phase}"
-      return
-    fi
 
-    # error pulling the image
-    if kubectl --context="${context}" get pod "${pod_name}" | grep -i -e ImagePullBackOff -e InvalidImageName -e ErrImagePull &>/dev/null; then
-      image_name=$(kubectl --context="${context}" get pod "${pod_name}" -o jsonpath="{.spec.containers[0].image}")
-      echo "${pod_name} name failed to be scheduled because there was an error pulling the image: ${image_name}"
-      # Delete the pod so that it doesn't block other pods from being scheduled on this
-      kubectl --context="${context}" delete pod "${pod_name}"
-      exit 1
-    fi
+def get_monitoring_pod(context):
+    return json.loads(
+        subprocess.check_output(
+            [
+                "kubectl",
+                "-o=json",
+                f"--context={context}",
+                "get",
+                "pods",
+                "--selector=app.kubernetes.io/name=monitoring",
+            ],
+            stderr=subprocess.DEVNULL,
+            encoding="UTF-8",
+        )
+    )
 
-    echo "Waiting for ${pod_name} to be scheduled. Current phase: ${phase}"
-    sleep 10
-  done
-  echo "Pod ${pod_name} failed to be scheduled"
-  exit 1
-}
 
-while (( "$#" )); do
-  case "$1" in
-    -p|--pr)
-      PR=$2
-      shift 2
-      ;;
-    -L|--local-build)
-      LOCAL_BUILD="yes"
-      shift 1
-      ;;
-    --timeout-secs)
-      TIMEOUT_SECS=$2
-      shift 2
-      ;;
-    --local-swarm)
-      LOCAL_SWARM="yes"
-      shift 1
-      ;;
-    -T|--tag)
-      TAG=$2
-      shift 2
-      ;;
-    -W|--workspace)
-      WORKSPACE=$2
-      shift 2
-      ;;
-    -E|--env)
-      ENV="$ENV $2"
-      shift 2
-      ;;
-    *) # end argument parsing
-      break
-      ;;
-  esac
-done
+def cli_tool_installed(tool_name):
+    ret = subprocess.run(
+        ["which", tool_name], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL
+    )
+    return ret.returncode == 0
 
-if [ -n "$LOCAL_SWARM" ]; then
-  cargo run -p forge -- --local-swarm
-  exit $EXIT_CODE
-fi
 
-if ! which kubectl &>/dev/null; then
-  echo "kubectl is not installed. Please install kubectl. On mac, you can use: brew install kubectl"
-  echo "scripts/dev_setup.sh -i kubectl"
-  exit 1
-fi
+# randomly select a cluster that is free based on its pod status:
+# - no other forge pods currently Running or Pending
+# - all monitoring pods are ready
+def kube_select_cluster():
+    shuffled_clusters = random.sample(FORGE_K8S_CLUSTERS, len(FORGE_K8S_CLUSTERS))
+    attempts = 360
+    for attempt in range(attempts):
+        for cluster in shuffled_clusters:
+            context = get_cluster_context(cluster)
+            running_pods = get_forge_pods_by_phase(context, "Running")
+            pending_pods = get_forge_pods_by_phase(context, "Pending")
+            monitoring_pods = get_monitoring_pod(context)
 
-# build and push the images to be used
-if [ -z "$TAG" ]; then
-  if [ -z "$LOCAL_BUILD" ]; then
-    aws codebuild list-projects >/dev/null || (echo "Failed to access codebuild, try awsmfa?"; exit 1)
-    ./docker/build-aws.sh --build-forge --version "pull/${PR}"
-    TAG="dev_${USER}_pull_${PR}"
-    echo "**TIP Use fgi -T $TAG <...> to restart this run with same tag without rebuilding it"
-  else
-    TAG="dev_$(whoami)_$(git rev-parse --short HEAD)"
-    TAG=$TAG ./docker/build-push-local.sh
-  fi
-fi
+            # check pod status
+            num_running_pods = len(running_pods["items"])
+            num_pending_pods = len(pending_pods["items"])
+            for pod in monitoring_pods["items"]:
+                pod_name = pod["metadata"]["name"]
+                healthy = all(
+                    list(
+                        map(
+                            lambda container: container["ready"],
+                            pod["status"]["containerStatuses"],
+                        )
+                    )
+                )
+                if not healthy:
+                    print(
+                        f"{cluster} has an unhealthy monitoring pod {pod_name}. Skipping."
+                    )
+                    continue
 
-FORGE_TAG=${FORGE_TAG:-${TAG}}
-VALIDATOR_TAG=${VALIDATOR_TAG:-${TAG}}
-OUTPUT_TEE=${FGI_OUTPUT_LOG:-$(mktemp)}
+            if num_running_pods > 0:
+                print(f"{cluster} has {num_running_pods} running forge pods. Skipping.")
+            elif num_pending_pods > 0:
+                print(f"{cluster} has {num_pending_pods} pending forge pods. Skipping.")
+            else:
+                return cluster
 
-# select the kubernetes cluster
-echo "Running forge on Kubernetes"
-echo "Attempting to reach Kubernetes..."
-kube_init_context
-echo "Grabbing a Kubernetes cluster..."
-if [[ -z "${WORKSPACE}" ]]; then
-  kube_select_cluster
-  WORKSPACE=${retval_kube_select_cluster}
-fi
-helm_charts_url=${HELM_CHARTS_URL_PATTERN/CLUSTERNAME/${WORKSPACE}}
-grafana_url=${GRAFANA_URL_PATTERN/CLUSTERNAME/${WORKSPACE}}
-echo
+        print(
+            f"All clusters have jobs running on them. Retrying in 10 secs. Attempt: {attempt}/{attempts}"
+        )
+        time.sleep(10)
+    print("Failed to schedule forge pod. All clusters are busy")
+    sys.exit(1)
 
-# create the pod spec
-pod_name="forge-$(whoami)-$(date +%s)"
-pod_name=${pod_name/_/-} # underscore not allowed in pod name
-specfile=$(mktemp)
-echo "Pod spec: ${specfile}"
-# shellcheck disable=SC2068
-join_args $@ # pass the rest of the args into forge. this should remain unquoted
-run_id="${WORKSPACE}-${pod_name}"
-ENV="${ENV} AWS_ROLE_SESSION_NAME=AWS_ROLE_SESSION_NAME RUN_ID=${run_id}"
-# shellcheck disable=SC2068,SC2086
-join_env_vars $ENV # pass the environment variables into the pod. this should remain unquoted
-sed -e "s/{pod_name}/${pod_name}/g" \
-    -e "s/{aws_account}/${AWS_ACCOUNT}/g" \
-    -e "s/{timeout_secs}/${TIMEOUT_SECS}/g" \
-    -e "s/{forge_image_tag}/${FORGE_TAG}/g" \
-    -e "s^{helm_charts_url}^${helm_charts_url}^g" \
-    -e "s^{env_variables}^${retval_join_env_vars}^g" \
-    -e "s+{extra_args}+${retval_join_args}+g" \
-    "${DIR}/forge_pod_template.yaml" > "$specfile"
-echo
 
-# apply the pod spec
-echo "Using cluster: ${WORKSPACE}"
-context=${K8S_CONTEXT_PATTERN/CLUSTERNAME/${WORKSPACE}}
-echo "Context: ${context}"
-echo "Creating pod: $pod_name"
-kubectl --context=${context} apply -f "${specfile}" || (echo "Failed to create forge pod"; exit 1)
-kube_wait_pod "${pod_name}" ${context}
-start_ts_ms=$(date +%s)000
+def kube_wait_job(job_name, context):
+    attempts = 360
+    for _ in range(attempts):
+        try:
+            phase = subprocess.check_output(
+                [
+                    "kubectl",
+                    f"--context={context}",
+                    "get",
+                    "pod",
+                    f"--selector=job-name={job_name}",
+                    "-o",
+                    "jsonpath={.items[0].status.phase}",
+                ],
+                encoding="UTF-8",
+            )
+        except subprocess.CalledProcessError:
+            print(f"kubectl get pod {job_name} failed. Retrying.")
+            continue
 
-echo
-echo "**********"
-echo "${BLUE}Auto refresh Dashboard:${RESTORE} ${grafana_url}/d/overview/overview?from=${start_ts_ms}&to=now&refresh=10s&orgId=1"
-echo "**********"
+        # pod is either Running, Succeeded, or Failed
+        # https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-phase
+        if phase in ["Pending", "Unknown"]:
+            print(f"{job_name} reached phase: {phase}")
+            return
 
-# tail the logs and block
-echo
-echo "==========begin-pod-logs=========="
-kubectl --context=${context} logs -f "${pod_name}" | tee "$OUTPUT_TEE"
-echo "==========end-pod-logs=========="
+        # error pulling the image
+        ret = subprocess.call(
+            f"kubectl --context='{context}' get pod --selector=job-name={job_name} | grep -i -e ImagePullBackOff -e InvalidImageName -e ErrImagePull",
+            shell=True,
+            # stdout=subprocess.DEVNULL,
+            # stderr=subprocess.DEVNULL,
+        )
+        if ret == 0:
+            image_name = subprocess.check_output(
+                [
+                    "kubectl",
+                    f"--context={context}",
+                    "get",
+                    "pod",
+                    f"--selector=job-name={job_name}",
+                    "-o",
+                    "jsonpath={.items[0].spec.containers[0].image}",
+                ],
+                encoding="UTF-8",
+            )
+            print(
+                f"Job {job_name} failed to be scheduled because there was an error pulling the image: {image_name}"
+            )
+            subprocess.call(
+                ["kubectl", f"--context={context}", "delete", "job", job_name]
+            )
+            sys.exit(1)
 
-# collect the results
-pod_status=$(kubectl --context=${context} get pods "${pod_name}" -o jsonpath="{.status.phase}")
-end_ts_ms=$(date +%s)000
+        print(f"Waiting for {job_name} to be scheduled. Current phase: {phase}")
+        time.sleep(1)
 
-echo
-echo "**********"
-echo "${BLUE}Dashboard snapshot:${RESTORE} ${grafana_url}/d/overview/overview?from=${start_ts_ms}&to=${end_ts_ms}&orgId=1"
-echo "**********"
+    print(f"Failed to schedule job: {job_name}")
 
-if [[ "${pod_status}" != "Succeeded" ]]; then
-  echo
-  echo "${pod_name} status: ${pod_status}"
-  EXIT_CODE=1
-fi
-exit $EXIT_CODE
+
+# ================ Parse the args ================
+args, forge_args = build_argparser()
+
+# build and push the images to be used, since an image tag
+# was not specified explicitly
+TAG = args.tag
+if not args.tag:
+    if args.pr:  # codebuild using a PR
+        ret = subprocess.call(
+            ["aws", "codebuild", "list-projects"], stdout=subprocess.DEVNULL
+        )
+        if ret != 0:
+            print("Failed to access codebuild. Try aws-mfa?")
+            sys.exit(1)
+        subprocess.call(
+            ["./docker/build-aws.sh", "--build-forge", "--version", f"pull/{args.pr}"]
+        )
+        TAG = f"dev_{USER}_pull_{args.pr}"
+        print(
+            f"**TIP Use ./scripts/fgi -T {TAG} <...> to restart this run with the same tag without rebuilding it"
+        )
+    else:
+        print(f"{WARNING}Please specify either --tag or --pr{RESTORE}")
+        sys.exit(1)
+
+timeout_secs = args.timeout_secs
+
+# ================ Test setup ================
+print(f"Welcome to ~ {HEADER}F {OKBLUE}O {OKGREEN}R {WARNING}G {FAIL}E{RESTORE} ~")
+print("Running Forge on Kubernetes testnet backend")
+
+if not cli_tool_installed("kubectl"):
+    print(
+        "kubectl is not installed. Please install kubectl. On mac, you can use: brew install kubectl"
+    )
+    print("or install via dev setup: scripts/dev_setup.sh -i kubectl")
+    sys.exit(1)
+
+print("\nAttempting to reach Forge Kubernetes testnets...")
+kube_init_context()
+print("Grabbing a testnet...")
+workspace = args.workspace
+if not args.workspace:
+    workspace = kube_select_cluster()
+context = get_cluster_context(workspace)
+print(f"Running experiments on cluster: {workspace}")
+grafana_url = get_grafana_url(workspace)
+print()
+
+job_name = f"forge-{USER}-{int(time.time())}"
+job_name = job_name.replace("_", "-")  # underscore not allowed in pod name
+
+# job template to spin up. Edit this in place
+template = json.loads(
+    subprocess.check_output(
+        [
+            "kubectl",
+            "-o=json",
+            f"--context={context}",
+            "get",
+            "job",
+            "--selector=app.kubernetes.io/name=forge-debug",
+        ],
+        stderr=subprocess.DEVNULL,
+        encoding="UTF-8",
+    )
+)
+if len(template["items"]) != 1:
+    print("ERROR: there must be exactly one forge-debug job")
+    sys.exit(1)
+
+template = template["items"][0]
+
+# delete old spec details
+del template["metadata"]["selfLink"]
+del template["spec"]["selector"]["matchLabels"]["controller-uid"]
+del template["spec"]["template"]["metadata"]["labels"]["controller-uid"]
+del template["spec"]["template"]["metadata"]["labels"]["job-name"]
+# change job name, labels, and backoff limit
+template["metadata"]["name"] = job_name
+template["metadata"]["labels"]["app.kubernetes.io/name"] = "forge"
+template["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] = "forge"
+template["spec"]["backoffLimit"] = 0
+# change startup command with timeout and extra args
+cmd = template["spec"]["template"]["spec"]["containers"][0]["command"][2]
+template["spec"]["template"]["spec"]["containers"][0]["command"][2] = cmd.replace(
+    "tail -f /dev/null", f"timeout {timeout_secs} forge {' '.join(forge_args)}".strip()
+)
+# additional environment variables
+for env_var in args.env:
+    name, value = env_var.split("=")
+    template["spec"]["template"]["spec"]["containers"][0]["env"].append(
+        {"name": name, "value": value}
+    )
+# new image tag
+image_repo, _ = template["spec"]["template"]["spec"]["containers"][0]["image"].split(
+    ":"
+)
+template["spec"]["template"]["spec"]["containers"][0]["image"] = f"{image_repo}:{TAG}"
+
+_, specfile = tempfile.mkstemp(suffix=".json")
+with open(specfile, "w") as f:
+    f.write(json.dumps(template))
+print(f"Specfile: {specfile}")
+
+# ================ Create and run the job ================
+print(f"Creating job: {job_name}")
+ret = subprocess.call(["kubectl", f"--context={context}", "apply", "-f", specfile])
+if ret != 0:
+    print("Failed to create Forge job")
+    sys.exit(1)
+
+kube_wait_job(job_name, context)
+
+start_ts_ms = int(time.time() * 1000)
+print("\n**********")
+print(
+    f"{OKBLUE}Auto refresh Dashboard:{RESTORE} {grafana_url}/d/overview/overview?from={start_ts_ms}&to=now&refresh=10s&orgId=1"
+)
+print("**********")
+
+print(f"\nLog output: {OUTPUT_TEE}")
+print("==========begin-pod-logs==========")
+subprocess.call(
+    f"kubectl --context={context} logs -f -l job-name={job_name} | tee {OUTPUT_TEE}",
+    shell=True,
+)
+print("==========end-pod-logs==========")
+
+job_status = json.loads(
+    subprocess.check_output(
+        [
+            "kubectl",
+            f"--context={context}",
+            "get",
+            "job",
+            job_name,
+            "-o",
+            "jsonpath={.status}",
+        ],
+        encoding="UTF-8",
+    )
+)
+end_ts_ms = int(time.time() * 1000)
+print("\n**********")
+print(
+    f"{OKBLUE}Dashboard snapshot:{RESTORE} {grafana_url}/d/overview/overview?from={start_ts_ms}&to={end_ts_ms}&orgId=1"
+)
+print("**********\n")
+
+if "failed" in job_status and job_status["failed"] == 1:
+    print()
+    print(f"{FAIL}Job {job_name} failed{RESTORE}")
+    sys.exit(1)
+
+print(f"{OKGREEN}Job {job_name} succeeded!{RESTORE}")

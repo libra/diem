@@ -28,6 +28,7 @@ backup-cli = { path = "../../storage/backup/backup-cli" }
 cli = { path = "../cli", features = ["fuzzing"]  }
 diem-framework-releases = { path = "../../language/diem-framework/releases" }
 debug-interface = { path = "../../common/debug-interface" }
+futures = "0.3.12"
 generate-key = { path = "../../config/generate-key" }
 bcs = "0.1.2"
 move-move-command-line-common = { path = "../../language/move-command-line-common", package = "move-command-line-common" }

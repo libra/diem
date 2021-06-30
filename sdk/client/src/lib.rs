@@ -40,7 +40,9 @@ cfg_async_or_blocking! {
     pub use move_deserialize::Event;
 }
 
+// This API is experimental and subject to change
 cfg_websocket! {
+    pub use error::{StreamError, StreamResult};
     pub mod stream;
 }
 

@@ -6736,9 +6736,11 @@ dependencies = [
  "bcs",
  "diem-sdk",
  "diem-workspace-hack",
+ "futures",
  "once_cell",
  "rand 0.8.3",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -7207,6 +7209,7 @@ dependencies = [
  "diem-vault-client",
  "diem-workspace-hack",
  "diem-writeset-generator",
+ "futures",
  "generate-key",
  "hex",
  "move-command-line-common",

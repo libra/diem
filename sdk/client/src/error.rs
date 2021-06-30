@@ -40,16 +40,6 @@ enum Kind {
     Decode,
     InvalidProof,
     Unknown,
-
-    // Streaming Errors
-    Encode,
-    ConnectionClosed,
-    MessageTooLarge,
-    HttpError,
-    TlsError,
-    IdAlreadyUsed,
-    IdNotFound(Option<StreamJsonRpcResponse>),
-    QueueFullError,
 }
 
 impl Error {
@@ -69,15 +59,7 @@ impl Error {
             | Kind::Batch
             | Kind::Decode
             | Kind::InvalidProof
-            | Kind::Unknown
-            | Kind::Encode
-            | Kind::ConnectionClosed
-            | Kind::MessageTooLarge
-            | Kind::HttpError
-            | Kind::TlsError
-            | Kind::IdAlreadyUsed
-            | Kind::IdNotFound(_)
-            | Kind::QueueFullError => false,
+            | Kind::Unknown => false,
         }
     }
 
@@ -164,40 +146,6 @@ impl Error {
             }
         }
     }
-
-    cfg_websocket! {
-           pub(crate) fn from_tungstenite_error(e: tungstenite::Error) -> Self {
-               match e {
-                   tungstenite::Error::ConnectionClosed => Self::connection_closed(None::<Error>),
-                   tungstenite::Error::AlreadyClosed => Self::connection_closed(None::<Error>),
-                   tungstenite::Error::Io(e) => Self::connection_closed(Some(e)),
-                   tungstenite::Error::Tls(e) => Self::new(Kind::TlsError, Some(e)),
-                   tungstenite::Error::Capacity(e) => Self::new(Kind::MessageTooLarge, Some(e)),
-                   tungstenite::Error::Protocol(e) => Self::connection_closed(Some(e)),
-                   tungstenite::Error::SendQueueFull(_) => Self::new(Kind::QueueFullError, None::<Error>),
-                   tungstenite::Error::Utf8 => Self::encode(e),
-                   tungstenite::Error::Url(e) => Self::new(Kind::Request, Some(e)),
-                   tungstenite::Error::Http(e) => Self::new(Kind::HttpStatus(e.status().as_u16()), None::<Error>),
-                   tungstenite::Error::HttpFormat(e) => Self::new(Kind::HttpError, Some(e)),
-               }
-           }
-
-        pub(crate) fn from_http_error(e: tungstenite::http::Error) -> Self {
-            Self::new(Kind::HttpError, Some(e))
-        }
-
-        pub(crate) fn connection_closed<E: Into<BoxError>>(e: Option<E>) -> Self {
-            Self::new(Kind::ConnectionClosed, e)
-        }
-
-        pub(crate) fn subscription_id_already_used<E: Into<BoxError>>(e: Option<E>) -> Self {
-            Self::new(Kind::IdAlreadyUsed, e)
-        }
-
-        pub(crate) fn subscription_id_not_found<E: Into<BoxError>>(msg: Option<StreamJsonRpcResponse>, e: Option<E>) -> Self {
-            Self::new(Kind::IdNotFound(msg), e)
-        }
-    }
 }
 
 impl std::fmt::Display for Error {
@@ -216,6 +164,116 @@ impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Self::decode(e)
     }
+}
+
+cfg_websocket! {
+
+    pub type StreamResult<T, E = StreamError> = ::std::result::Result<T, E>;
+
+    #[derive(Debug)]
+    pub enum StreamKind {
+        HttpStatus(u16),
+        Request,
+        Decode,
+        Encode,
+        ConnectionClosed,
+        MessageTooLarge,
+        HttpError,
+        TlsError,
+        IdAlreadyUsed,
+        IdNotFound(Option<StreamJsonRpcResponse>),
+        QueueFullError,
+    }
+
+    #[derive(Debug)]
+    pub struct StreamError {
+        inner: Box<StreamInner>,
+    }
+
+    #[derive(Debug)]
+    struct StreamInner {
+        kind: StreamKind,
+        source: Option<BoxError>,
+        json_rpc_error: Option<JsonRpcError>,
+    }
+
+    impl StreamError {
+        pub(crate) fn from_tungstenite_error(e: tungstenite::Error) -> Self {
+            match e {
+                tungstenite::Error::ConnectionClosed => Self::connection_closed(None::<Error>),
+                tungstenite::Error::AlreadyClosed => Self::connection_closed(None::<Error>),
+                tungstenite::Error::Io(e) => Self::connection_closed(Some(e)),
+                tungstenite::Error::Tls(e) => Self::new(StreamKind::TlsError, Some(e)),
+                tungstenite::Error::Capacity(e) => Self::new(StreamKind::MessageTooLarge, Some(e)),
+                tungstenite::Error::Protocol(e) => Self::connection_closed(Some(e)),
+                tungstenite::Error::SendQueueFull(_) => {
+                    Self::new(StreamKind::QueueFullError, None::<Error>)
+                }
+                tungstenite::Error::Utf8 => Self::encode(e),
+                tungstenite::Error::Url(e) => Self::new(StreamKind::Request, Some(e)),
+                tungstenite::Error::Http(e) => {
+                    Self::new(StreamKind::HttpStatus(e.status().as_u16()), None::<Error>)
+                }
+                tungstenite::Error::HttpFormat(e) => Self::new(StreamKind::HttpError, Some(e)),
+            }
+        }
+
+        pub(crate) fn decode<E: Into<BoxError>>(e: E) -> Self {
+            Self::new(StreamKind::Decode, Some(e))
+        }
+
+        pub(crate) fn encode<E: Into<BoxError>>(e: E) -> Self {
+            Self::new(StreamKind::Encode, Some(e))
+        }
+
+        pub(crate) fn from_http_error(e: tungstenite::http::Error) -> Self {
+            Self::new(StreamKind::HttpError, Some(e))
+        }
+
+        pub(crate) fn connection_closed<E: Into<BoxError>>(e: Option<E>) -> Self {
+            Self::new(StreamKind::ConnectionClosed, e)
+        }
+
+        pub(crate) fn subscription_id_already_used<E: Into<BoxError>>(e: Option<E>) -> Self {
+            Self::new(StreamKind::IdAlreadyUsed, e)
+        }
+
+        pub(crate) fn subscription_id_not_found<E: Into<BoxError>>(
+            msg: Option<StreamJsonRpcResponse>,
+            e: Option<E>,
+        ) -> Self {
+            Self::new(StreamKind::IdNotFound(msg), e)
+        }
+
+        fn new<E: Into<BoxError>>(kind: StreamKind, source: Option<E>) -> Self {
+            Self {
+                inner: Box::new(StreamInner {
+                    kind,
+                    source: source.map(Into::into),
+                    json_rpc_error: None,
+                }),
+            }
+        }
+    }
+
+    impl From<serde_json::Error> for StreamError {
+        fn from(e: serde_json::Error) -> Self {
+            Self::decode(e)
+        }
+    }
+
+    impl std::fmt::Display for StreamError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self)
+        }
+    }
+
+    impl std::error::Error for StreamError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.inner.source.as_ref().map(|e| &**e as _)
+        }
+    }
+
 }
 
 #[allow(clippy::large_enum_variant)]

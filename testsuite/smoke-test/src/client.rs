@@ -8,11 +8,12 @@ use crate::test_utils::{
 };
 use cli::client_proxy::ClientProxy;
 
-use diem_client::stream::{
-    request::StreamMethod, response::StreamJsonRpcResponseView, StreamingClient,
-};
+use diem_client::stream::{request::StreamMethod, response::StreamJsonRpcResponseView};
 use diem_json_rpc_types::Id;
 use diem_types::{ledger_info::LedgerInfo, waypoint::Waypoint};
+use futures::StreamExt;
+use std::time::Duration;
+use tokio::{runtime::Runtime, time::timeout};
 
 #[test]
 fn test_create_mint_transfer_block_metadata() {
@@ -33,9 +34,6 @@ fn test_create_mint_transfer_block_metadata() {
     );
 }
 
-use std::time::Duration;
-use tokio::{runtime::Runtime, time::timeout};
-
 #[test]
 fn test_get_events_via_websocket_stream() {
     let (_env, client) = setup_swarm_and_client_proxy(2, 1);
@@ -46,23 +44,19 @@ fn test_get_events_via_websocket_stream() {
         .expect("Could not get currency info");
 
     let rt = Runtime::new().unwrap();
-    let g = rt.enter();
+    let _guard = rt.enter();
 
     let ms_500 = Duration::from_millis(500);
 
-    let ws_client = rt
+    let (mut s_client, _error_receiver) = rt
         .block_on(timeout(ms_500, client.websocket_client()))
-        .unwrap_or_else(|e| panic!("Timeout creating WebsocketClient: {}", e))
+        .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e))
         .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
-
-    let (mut s_client, _) = rt
-        .block_on(timeout(ms_500, StreamingClient::new(ws_client, 10)))
-        .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e));
 
     for (i, currency) in currencies.iter().enumerate() {
         println!("Subscribing to events for {}", &currency.code);
 
-        let (id, mut channel) = rt
+        let mut subscription_stream = rt
             .block_on(timeout(
                 ms_500,
                 s_client.subscribe_events(currency.mint_events_key, 0),
@@ -72,12 +66,12 @@ fn test_get_events_via_websocket_stream() {
                 panic!("Error subscribing to currency '{}': {}", &currency.code, e)
             });
 
-        assert_eq!(id, Id::Number(i as u64));
+        assert_eq!(subscription_stream.id, Id::Number(i as u64));
 
         println!("Getting msg 1 for {}", &currency.code);
 
         let response = rt
-            .block_on(timeout(ms_500, channel.recv()))
+            .block_on(timeout(ms_500, subscription_stream.next()))
             .unwrap_or_else(|e| panic!("Timeout getting message 1: {}", e))
             .unwrap_or_else(|| panic!("Currency '{}' response 1 is None", &currency.code))
             .unwrap_or_else(|e| panic!("Currency '{}' response 1 is Err: {}", &currency.code, e));
@@ -106,7 +100,7 @@ fn test_get_events_via_websocket_stream() {
         println!("Getting msg 2 for {}", &currency.code);
 
         let response = rt
-            .block_on(timeout(ms_500, channel.recv()))
+            .block_on(timeout(ms_500, subscription_stream.next()))
             .unwrap_or_else(|e| panic!("Timeout getting message 2: {}", e))
             .unwrap_or_else(|| panic!("Currency '{}' response 2 is None", &currency.code))
             .unwrap_or_else(|e| panic!("Currency '{}' response 2 is Err: {}", &currency.code, e));
@@ -127,11 +121,9 @@ fn test_get_events_via_websocket_stream() {
             StreamJsonRpcResponseView::Event(event) => {
                 assert_eq!(event.key, currency.mint_events_key)
             }
-            _ => panic!("Expected 'SubscribeResult', but got: {:?}", response_view),
+            _ => panic!("Expected 'SubscribeResult' 2, but got: {:?}", response_view),
         }
     }
-
-    drop(g);
 }
 
 #[test]

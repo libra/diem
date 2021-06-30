@@ -30,3 +30,8 @@ full_node_networks:
                 from_disk: "/full/path/to/token"
     network_id:
       private: "vfn"
+
+json_rpc:
+  # Enable streaming RPC (i.e JSON-RPC over websockets)
+  stream_rpc:
+    enabled: true

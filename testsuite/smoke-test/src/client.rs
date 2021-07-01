@@ -48,7 +48,7 @@ fn test_get_events_via_websocket_stream() {
 
     let ms_500 = Duration::from_millis(500);
 
-    let (mut s_client, _error_receiver) = rt
+    let mut s_client = rt
         .block_on(timeout(ms_500, client.websocket_client()))
         .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e))
         .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));

@@ -22,8 +22,8 @@ use diem_sdk::{
     },
 };
 use futures::StreamExt;
-use std::convert::TryFrom;
-use tokio::runtime::Runtime;
+use std::{convert::TryFrom, time::Duration};
+use tokio::{runtime::Runtime, time::timeout};
 
 mod env;
 pub use env::{Coffer, Environment};
@@ -247,20 +247,35 @@ fn get_events_via_websocket_stream() -> Result<()> {
     let client = env.client();
 
     let rt = Runtime::new().unwrap();
-    let (mut s_client, _error_receiver) = rt
-        .block_on(env.websocket_client())
+    let _guard = rt.enter();
+
+    let ms_500 = Duration::from_millis(500);
+
+    let mut s_client = rt
+        .block_on(timeout(ms_500, env.websocket_client()))
+        .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e))
         .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
 
     let currencies = client.get_currencies()?.into_inner();
     for currency in currencies {
         let mut subscription_stream = rt
-            .block_on(s_client.subscribe_events(currency.mint_events_key, 0))
+            .block_on(timeout(
+                ms_500,
+                s_client.subscribe_events(currency.mint_events_key, 0),
+            ))
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Timeout subscribing to currency '{}': {}",
+                    &currency.code, e
+                )
+            })
             .unwrap_or_else(|e| {
                 panic!("Error subscribing to currency '{}': {}", &currency.code, e)
             });
 
         let response = rt
-            .block_on(subscription_stream.next())
+            .block_on(timeout(ms_500, subscription_stream.next()))
+            .unwrap_or_else(|e| panic!("Timeout response for '{}': {}", &currency.code, e))
             .unwrap_or_else(|| panic!("Currency '{}' response is None", &currency.code))
             .unwrap_or_else(|e| panic!("Currency '{}' response is Err: {}", &currency.code, e));
 

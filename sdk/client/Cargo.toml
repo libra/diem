@@ -22,6 +22,7 @@ bcs = "0.1.2"
 hex = "0.4.3"
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0.64"
+tracing = "0.1.26"
 
 diem-crypto = { path = "../../crypto/crypto", version = "0.0.2" }
 diem-json-rpc-types = { path = "../../json-rpc/types", version = "0.0.2" }

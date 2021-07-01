@@ -238,13 +238,6 @@ cfg_websocket! {
             Self::new(StreamKind::IdAlreadyUsed, e)
         }
 
-        pub(crate) fn subscription_id_not_found<E: Into<BoxError>>(
-            msg: Option<StreamJsonRpcResponse>,
-            e: Option<E>,
-        ) -> Self {
-            Self::new(StreamKind::IdNotFound(msg), e)
-        }
-
         fn new<E: Into<BoxError>>(kind: StreamKind, source: Option<E>) -> Self {
             Self {
                 inner: Box::new(StreamInner {

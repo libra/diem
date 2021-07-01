@@ -4,5 +4,5 @@
 pub(crate) mod streaming_client;
 pub(crate) mod websocket_transport;
 
-pub use self::streaming_client::{StreamingClient, StreamingClientReceiver, StreamingClientSender, SubscriptionStreamResult};
+pub use self::streaming_client::{StreamingClient, SubscriptionStream, SubscriptionStreamResult};
 pub use diem_json_rpc_types::stream::*;

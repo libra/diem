@@ -150,7 +150,7 @@ impl SMRNode {
             shared_connections.write().insert(
                 author_from_config(config),
                 vec![
-                    ProtocolId::ConsensusDirectSendCbor,
+                    ProtocolId::ConsensusDirectSendJSON,
                     ProtocolId::ConsensusDirectSend,
                     ProtocolId::ConsensusRpc,
                 ]

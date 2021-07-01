@@ -551,7 +551,7 @@ mod tests {
             shared_connections.write().insert(
                 *peer,
                 vec![
-                    ProtocolId::ConsensusDirectSendCbor,
+                    ProtocolId::ConsensusDirectSendJSON,
                     ProtocolId::ConsensusDirectSend,
                     ProtocolId::ConsensusRpc,
                 ]
@@ -654,7 +654,7 @@ mod tests {
             shared_connections.write().insert(
                 *peer,
                 vec![
-                    ProtocolId::ConsensusDirectSendCbor,
+                    ProtocolId::ConsensusDirectSendJSON,
                     ProtocolId::ConsensusDirectSend,
                     ProtocolId::ConsensusRpc,
                 ]

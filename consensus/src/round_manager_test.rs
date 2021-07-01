@@ -103,7 +103,7 @@ impl NodeSetup {
             shared_connections.write().insert(
                 signer.author(),
                 vec![
-                    ProtocolId::ConsensusDirectSendCbor,
+                    ProtocolId::ConsensusDirectSendJSON,
                     ProtocolId::ConsensusDirectSend,
                     ProtocolId::ConsensusRpc,
                 ]

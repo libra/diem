@@ -40,8 +40,8 @@ pub enum ProtocolId {
     StateSyncDirectSend = 3,
     DiscoveryDirectSend = 4,
     HealthCheckerRpc = 5,
-    // Cbor provides flexibility for backwards compatible upgrade
-    ConsensusDirectSendCbor = 6,
+    // json provides flexibility for backwards compatible upgrade
+    ConsensusDirectSendJSON = 6,
 }
 
 impl ProtocolId {
@@ -54,7 +54,7 @@ impl ProtocolId {
             StateSyncDirectSend => "StateSyncDirectSend",
             DiscoveryDirectSend => "DiscoveryDirectSend",
             HealthCheckerRpc => "HealthCheckerRpc",
-            ConsensusDirectSendCbor => "ConsensusDirectSendCbor",
+            ConsensusDirectSendJSON => "ConsensusDirectSendCbor",
         }
     }
 
@@ -66,14 +66,14 @@ impl ProtocolId {
             ProtocolId::StateSyncDirectSend,
             ProtocolId::DiscoveryDirectSend,
             ProtocolId::HealthCheckerRpc,
-            ProtocolId::ConsensusDirectSendCbor,
+            ProtocolId::ConsensusDirectSendJSON,
         ]
     }
 
     pub fn to_bytes<T: Serialize>(&self, value: &T) -> anyhow::Result<Vec<u8>> {
         match self {
-            ProtocolId::ConsensusDirectSendCbor => {
-                serde_cbor::to_vec(value).map_err(|e| anyhow!("{:?}", e))
+            ProtocolId::ConsensusDirectSendJSON => {
+                serde_json::to_vec(value).map_err(|e| anyhow!("{:?}", e))
             }
             _ => bcs::to_bytes(value).map_err(|e| anyhow! {"{:?}", e}),
         }
@@ -81,8 +81,8 @@ impl ProtocolId {
 
     pub fn from_bytes<'a, T: Deserialize<'a>>(&self, bytes: &'a [u8]) -> anyhow::Result<T> {
         match self {
-            ProtocolId::ConsensusDirectSendCbor => {
-                serde_cbor::from_slice(bytes).map_err(|e| anyhow!("{:?}", e))
+            ProtocolId::ConsensusDirectSendJSON => {
+                serde_json::from_slice(bytes).map_err(|e| anyhow!("{:?}", e))
             }
             _ => bcs::from_bytes(bytes).map_err(|e| anyhow! {"{:?}", e}),
         }

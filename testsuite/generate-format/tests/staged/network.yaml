@@ -137,7 +137,7 @@ ProtocolId:
     5:
       HealthCheckerRpc: UNIT
     6:
-      ConsensusDirectSendCbor: UNIT
+      ConsensusDirectSendJSON: UNIT
 PublicKey:
   NEWTYPESTRUCT: BYTES
 RpcRequest:

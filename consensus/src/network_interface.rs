@@ -87,7 +87,7 @@ pub struct ConsensusNetworkSender {
 pub const RPC: &[ProtocolId] = &[ProtocolId::ConsensusRpc];
 /// Supported protocols in preferred order (from highest priority to lowest).
 pub const DIRECT_SEND: &[ProtocolId] = &[
-    ProtocolId::ConsensusDirectSendCbor,
+    ProtocolId::ConsensusDirectSendJSON,
     ProtocolId::ConsensusDirectSend,
 ];
 

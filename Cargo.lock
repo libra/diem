@@ -5079,7 +5079,7 @@ dependencies = [
  "rand_core 0.6.2",
  "serde",
  "serde_bytes",
- "serde_cbor",
+ "serde_json",
  "serial_test",
  "short-hex-str",
  "socket-bench-server",

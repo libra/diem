@@ -8,7 +8,9 @@ use crate::test_utils::{
 };
 use cli::client_proxy::ClientProxy;
 
-use diem_client::stream::{request::StreamMethod, response::StreamJsonRpcResponseView};
+use diem_client::stream::{
+    request::StreamMethod, response::StreamJsonRpcResponseView, StreamingClientConfig,
+};
 use diem_json_rpc_types::Id;
 use diem_types::{ledger_info::LedgerInfo, waypoint::Waypoint};
 use futures::StreamExt;
@@ -48,8 +50,12 @@ fn test_get_events_via_websocket_stream() {
 
     let ms_500 = Duration::from_millis(500);
 
+    let config = Some(StreamingClientConfig {
+        channel_size: 1,
+        ok_timeout_millis: 1_000,
+    });
     let mut s_client = rt
-        .block_on(timeout(ms_500, client.websocket_client()))
+        .block_on(timeout(ms_500, client.streaming_client(config)))
         .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e))
         .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
 

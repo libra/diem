@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    stream::{streaming_client::StreamingClientReceiver},
-    StreamError, StreamResult, USER_AGENT,
+    stream::streaming_client::StreamingClientReceiver, StreamError, StreamResult, USER_AGENT,
 };
 use futures::{
     stream::{SplitSink, SplitStream},
@@ -14,14 +13,19 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use diem_json_rpc_types::{stream::{request::{StreamJsonRpcRequest, StreamMethodRequest}, response::StreamJsonRpcResponse}, Id};
+use diem_json_rpc_types::{
+    stream::{
+        request::{StreamJsonRpcRequest, StreamMethodRequest},
+        response::StreamJsonRpcResponse,
+    },
+    Id,
+};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_tungstenite::{
     connect_async_with_config,
     tungstenite::{handshake::client::Request, protocol::WebSocketConfig, Message},
     MaybeTlsStream, WebSocketStream,
 };
-
 
 pub struct WebsocketTransport {
     stream: Option<SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>,

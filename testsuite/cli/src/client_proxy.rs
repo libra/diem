@@ -8,7 +8,10 @@ use crate::{
 };
 use anyhow::{bail, ensure, format_err, Error, Result};
 use compiler::Compiler;
-use diem_client::{stream::StreamingClient, views, StreamResult, WaitForTransactionError};
+use diem_client::{
+    stream::{StreamingClient, StreamingClientConfig},
+    views, StreamResult, WaitForTransactionError,
+};
 use diem_crypto::{
     ed25519::{Ed25519PrivateKey, Ed25519PublicKey, Ed25519Signature},
     test_utils::KeyPair,
@@ -217,12 +220,15 @@ impl ClientProxy {
     }
 
     /// Gets a websocket client for the same node `DiemClient` connects to
-    pub async fn websocket_client(&self) -> StreamResult<StreamingClient> {
+    pub async fn streaming_client(
+        &self,
+        config: Option<StreamingClientConfig>,
+    ) -> StreamResult<StreamingClient> {
         let mut url = self.url.clone();
         url.set_scheme("ws").expect("Could not set scheme");
         url.set_path("/v1/stream/ws");
         println!("ws_url: {}", &url);
-        StreamingClient::new(url, 10, None).await
+        StreamingClient::new(url, config.unwrap_or_default(), None).await
     }
 
     /// Gets account data for the indexed address

@@ -3,7 +3,10 @@
 
 use anyhow::Result;
 use diem_sdk::{
-    client::{stream::StreamingClient, BlockingClient, FaucetClient, StreamResult},
+    client::{
+        stream::{StreamingClient, StreamingClientConfig},
+        BlockingClient, FaucetClient, StreamResult,
+    },
     transaction_builder::{Currency, TransactionFactory},
     types::{chain_id::ChainId, transaction::authenticator::AuthenticationKey, LocalAccount},
 };
@@ -66,8 +69,11 @@ impl Environment {
         BlockingClient::new(self.json_rpc_url())
     }
 
-    pub async fn websocket_client(&self) -> StreamResult<StreamingClient> {
-        StreamingClient::new(self.websocket_rpc_url(), 10, None).await
+    pub async fn streaming_client(
+        &self,
+        config: Option<StreamingClientConfig>,
+    ) -> StreamResult<StreamingClient> {
+        StreamingClient::new(self.websocket_rpc_url(), config.unwrap_or_default(), None).await
     }
 
     pub fn coffer(&self) -> &Coffer {

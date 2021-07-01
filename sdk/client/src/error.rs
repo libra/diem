@@ -183,6 +183,7 @@ cfg_websocket! {
         IdAlreadyUsed,
         IdNotFound(Option<StreamJsonRpcResponse>),
         QueueFullError,
+        SubscriptionOkTimeout
     }
 
     #[derive(Debug)]
@@ -200,19 +201,19 @@ cfg_websocket! {
     impl StreamError {
         pub(crate) fn from_tungstenite_error(e: tungstenite::Error) -> Self {
             match e {
-                tungstenite::Error::ConnectionClosed => Self::connection_closed(None::<Error>),
-                tungstenite::Error::AlreadyClosed => Self::connection_closed(None::<Error>),
+                tungstenite::Error::ConnectionClosed => Self::connection_closed(None::<Self>),
+                tungstenite::Error::AlreadyClosed => Self::connection_closed(None::<Self>),
                 tungstenite::Error::Io(e) => Self::connection_closed(Some(e)),
                 tungstenite::Error::Tls(e) => Self::new(StreamKind::TlsError, Some(e)),
                 tungstenite::Error::Capacity(e) => Self::new(StreamKind::MessageTooLarge, Some(e)),
                 tungstenite::Error::Protocol(e) => Self::connection_closed(Some(e)),
                 tungstenite::Error::SendQueueFull(_) => {
-                    Self::new(StreamKind::QueueFullError, None::<Error>)
+                    Self::new(StreamKind::QueueFullError, None::<Self>)
                 }
                 tungstenite::Error::Utf8 => Self::encode(e),
                 tungstenite::Error::Url(e) => Self::new(StreamKind::Request, Some(e)),
                 tungstenite::Error::Http(e) => {
-                    Self::new(StreamKind::HttpStatus(e.status().as_u16()), None::<Error>)
+                    Self::new(StreamKind::HttpStatus(e.status().as_u16()), None::<Self>)
                 }
                 tungstenite::Error::HttpFormat(e) => Self::new(StreamKind::HttpError, Some(e)),
             }
@@ -236,6 +237,10 @@ cfg_websocket! {
 
         pub(crate) fn subscription_id_already_used<E: Into<BoxError>>(e: Option<E>) -> Self {
             Self::new(StreamKind::IdAlreadyUsed, e)
+        }
+
+        pub(crate) fn subscription_ok_timeout() -> Self {
+            Self::new(StreamKind::SubscriptionOkTimeout, None::<Self>)
         }
 
         fn new<E: Into<BoxError>>(kind: StreamKind, source: Option<E>) -> Self {

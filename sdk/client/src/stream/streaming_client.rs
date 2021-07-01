@@ -1,27 +1,52 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{StreamError, StreamResult, stream::websocket_transport::WebsocketTransport};
-use diem_json_rpc_types::{stream::{request::{StreamMethodRequest, SubscribeToEventsParams, SubscribeToTransactionsParams}, response::StreamJsonRpcResponse}, Id};
-use std::{
-    collections::HashMap,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
-use tokio::{
-    sync::{mpsc, RwLock},
-    task::JoinHandle,
+use crate::{stream::websocket_transport::WebsocketTransport, StreamError, StreamResult};
+use diem_json_rpc_types::{
+    stream::{
+        request::{StreamMethodRequest, SubscribeToEventsParams, SubscribeToTransactionsParams},
+        response::StreamJsonRpcResponse,
+    },
+    Id,
 };
 use diem_types::event::EventKey;
 use futures::Stream;
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+    time::Duration,
+};
+use tokio::{
+    sync::{mpsc, RwLock},
+    time::sleep,
+};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
-use tracing::{debug, warn};
+use tracing::{debug, warn, trace};
 
 pub(crate) type StreamingClientReceiver = mpsc::Receiver<StreamResult<StreamJsonRpcResponse>>;
 pub(crate) type StreamingClientSender = mpsc::Sender<StreamResult<StreamJsonRpcResponse>>;
 pub type SubscriptionStreamResult = StreamResult<SubscriptionStream>;
 
+struct SubscriptionSender {
+    pub id: Id,
+    pub message_received: AtomicBool,
+    pub sender: StreamingClientSender,
+}
+
+impl SubscriptionSender {
+    pub fn new(id: Id, sender: StreamingClientSender) -> Self {
+        Self {
+            id,
+            message_received: AtomicBool::from(false),
+            sender,
+        }
+    }
+}
 
 pub struct SubscriptionStream {
     pub id: Id,
@@ -42,89 +67,39 @@ impl Stream for SubscriptionStream {
     }
 }
 
-pub struct SubscriptionChannelManager {
-    stream: StreamingClientReceiver,
-    subscriptions: Arc<RwLock<HashMap<Id, StreamingClientSender>>>,
+/// Configuration options for the `Streaming Client`
+pub struct StreamingClientConfig {
+    /// The buffer of incoming messages per subscription
+    pub channel_size: usize,
+    /// How long to wait for an incoming message before considering a subscription 'timed out'
+    pub ok_timeout_millis: u64,
 }
 
-impl SubscriptionChannelManager {
-    pub fn new(
-        stream: StreamingClientReceiver,
-        subscriptions: Arc<RwLock<HashMap<Id, StreamingClientSender>>>,
-    ) -> Self {
+impl Default for StreamingClientConfig {
+    fn default() -> Self {
         Self {
-            stream,
-            subscriptions,
+            channel_size: 10,
+            ok_timeout_millis: 1_000,
         }
-    }
-
-    /// Returning an actual `Err` from here signals some kind of connection problem
-    pub async fn handle_next_message(&mut self) -> StreamResult<()> {
-        let msg = self.stream.recv().await;
-
-        debug!("StreamingClient got message: {:?}", &msg);
-
-        let msg = match msg {
-            None => return Err(StreamError::connection_closed(None::<StreamError>)),
-            Some(msg) => msg,
-        };
-
-        let msg = match msg {
-            Ok(msg) => msg,
-            Err(e) => {
-                warn!("StreamingClient received error on channel: {:?}", e);
-                return Ok(());
-            }
-        };
-
-        // If there is no ID, we can't route this to anywhere but the catchall '_error' channel
-        let id = match &msg.id {
-            Some(id) => id,
-            None => {
-                warn!("StreamingClient got message without an ID: {:?}", &msg);
-                return Ok(());
-            }
-        };
-        // Send the message to the respective channel
-        let id = id.clone();
-        match self.subscriptions.read().await.get(&id) {
-            // If we could not send the subscription, or the channel is closed, make sure to clean up the subscription
-            Some(sender) => match sender.send(Ok(msg.clone())).await {
-                Err(e) => {
-                    warn!(error=?&e, "StreamingClient could not forward message: {:?}", &msg);
-                    self.unsubscribe(&id).await;
-                    Err(StreamError::connection_closed(Some(e)))
-                }
-                Ok(_) => {
-                    debug!("StreamingClient forwarded message: {:?}", &msg);
-                    Ok(())
-                },
-            },
-            // No such subscription exists
-            None => {
-                warn!("StreamingClient got message without matching subscription: {:?}", &msg);
-                Ok(())
-            }
-        }
-    }
-
-    pub async fn unsubscribe(&self, id: &Id) {
-        self.subscriptions.write().await.remove(id);
     }
 }
 
 /// This API is experimental and subject to change
 /// Documentation is in /json-rpc/src/stream_rpc/README.md
+#[derive(Clone)]
 pub struct StreamingClient {
     client: Arc<RwLock<WebsocketTransport>>,
-    subscriptions: Arc<RwLock<HashMap<Id, StreamingClientSender>>>,
-    channel_size: usize,
-    channel_task: Option<JoinHandle<StreamResult<()>>>,
+    subscriptions: Arc<RwLock<HashMap<Id, SubscriptionSender>>>,
+    stream: Arc<RwLock<StreamingClientReceiver>>,
+    config: Arc<StreamingClientConfig>,
 }
 
 impl StreamingClient {
     pub async fn new<T: Into<String>>(
-        url: T, channel_size: usize, websocket_config: Option<WebSocketConfig>) -> StreamResult<Self> {
+        url: T,
+        config: StreamingClientConfig,
+        websocket_config: Option<WebSocketConfig>,
+    ) -> StreamResult<Self> {
         let client = WebsocketTransport::new(url, websocket_config).await?;
         let subscriptions = Arc::new(RwLock::new(HashMap::new()));
 
@@ -133,11 +108,11 @@ impl StreamingClient {
         let mut sct = Self {
             client: Arc::new(RwLock::new(client)),
             subscriptions,
-            channel_size,
-            channel_task: None,
+            stream: Arc::new(RwLock::new(stream)),
+            config: Arc::new(config),
         };
 
-        sct.start_channel_task(stream);
+        sct.start_channel_task();
 
         Ok(sct)
     }
@@ -168,7 +143,10 @@ impl StreamingClient {
         self.send_subscription(request).await
     }
 
-    pub async fn send_subscription(&mut self, request: StreamMethodRequest) -> SubscriptionStreamResult {
+    pub async fn send_subscription(
+        &mut self,
+        request: StreamMethodRequest,
+    ) -> SubscriptionStreamResult {
         let subscription_stream = self.get_and_register_id().await?;
         let res = self
             .client
@@ -177,16 +155,64 @@ impl StreamingClient {
             .send_method_request(request, Some(subscription_stream.id.clone()))
             .await;
 
-        self
-            .maybe_clear_subscription(&subscription_stream.id, res)
+        self.maybe_clear_subscription(&subscription_stream.id, res)
             .await?;
         Ok(subscription_stream)
     }
 
-    pub async fn unsubscribe(&mut self, id: Id){
-        match self.subscriptions.read().await.get(&id){
-            None => {}
-            Some(_) => {}
+    /// Returning an actual `Err` from here signals some kind of connection problem
+    async fn handle_next_message(&mut self) -> StreamResult<()> {
+        let msg = self.stream.write().await.recv().await;
+
+        trace!("StreamingClient got message: {:?}", &msg);
+
+        let msg = match msg {
+            None => return Err(StreamError::connection_closed(None::<StreamError>)),
+            Some(msg) => msg,
+        };
+
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                warn!("StreamingClient received error on channel: {:?}", e);
+                return Ok(());
+            }
+        };
+
+        // If there is no ID, we can't route this to anywhere but the catchall '_error' channel
+        let id = match &msg.id {
+            Some(id) => id,
+            None => {
+                warn!("StreamingClient got message without an ID: {:?}", &msg);
+                return Ok(());
+            }
+        };
+        // Send the message to the respective channel
+        let id = id.clone();
+        match self.subscriptions.read().await.get(&id) {
+            // If we could not send the subscription, or the channel is closed, make sure to clean up the subscription
+            Some(sender) => match sender.sender.send(Ok(msg.clone())).await {
+                Err(e) => {
+                    warn!(error=?&e, "StreamingClient could not forward message: {:?}", &msg);
+                    self.clear_subscription(&id).await;
+                    Err(StreamError::connection_closed(Some(e)))
+                }
+                Ok(_) => {
+                    if !sender.message_received.load(Ordering::Relaxed) {
+                        sender.message_received.store(true, Ordering::Relaxed);
+                    }
+                    debug!("StreamingClient forwarded message: {:?}", &msg);
+                    Ok(())
+                }
+            },
+            // No such subscription exists
+            None => {
+                warn!(
+                    "StreamingClient got message without matching subscription: {:?}",
+                    &msg
+                );
+                Ok(())
+            }
         }
     }
 
@@ -196,22 +222,19 @@ impl StreamingClient {
                 None::<StreamError>,
             ));
         }
-        let (sender, receiver) = mpsc::channel(self.channel_size);
-        self.subscriptions.write().await.insert(id, sender);
+        let (sender, receiver) = mpsc::channel(self.config.channel_size);
+
+        self.subscriptions
+            .write()
+            .await
+            .insert(id.clone(), SubscriptionSender::new(id, sender));
         Ok(receiver)
     }
 
-    fn start_channel_task(&mut self, stream: StreamingClientReceiver) {
-        let mut scm = SubscriptionChannelManager::new(
-            stream,
-            self.subscriptions.clone(),
-        );
+    fn start_channel_task(&mut self) {
         debug!("StreamingClient starting channel task");
-        self.channel_task = Some(tokio::task::spawn(async move {
-            loop {
-                scm.handle_next_message().await?;
-            }
-        }));
+        let mut clone = self.clone();
+        tokio::task::spawn(async move { while clone.handle_next_message().await.is_ok() {} });
     }
 
     async fn maybe_clear_subscription(&self, id: &Id, res: StreamResult<Id>) -> StreamResult<Id> {
@@ -229,9 +252,32 @@ impl StreamingClient {
         self.subscriptions.write().await.remove(id);
     }
 
+    async fn clear_subscription_if_not_ok(&self, id: &Id) {
+        if let Some(sender) = self.subscriptions.read().await.get(&id) {
+            if !sender.message_received.load(Ordering::Relaxed) {
+                debug!("StreamingClient OkTimeout for id: {:?}", &id);
+                sender
+                    .sender
+                    .send(Err(StreamError::subscription_ok_timeout()))
+                    .await
+                    .ok();
+                self.subscriptions.write().await.remove(id);
+            }
+        }
+    }
+
     async fn get_and_register_id(&self) -> SubscriptionStreamResult {
         let id = self.client.read().await.get_next_id();
         let receiver = self.register_subscription(id.clone()).await?;
+
+        debug!("StreamingClient starting OkTimeout task for id: {:?}", &id);
+        let clone = self.clone();
+        let id2 = id.clone();
+        tokio::task::spawn(async move {
+            sleep(Duration::from_millis(clone.config.ok_timeout_millis)).await;
+            clone.clear_subscription_if_not_ok(&id2).await;
+        });
+
         Ok(SubscriptionStream::new(id, receiver))
     }
 }

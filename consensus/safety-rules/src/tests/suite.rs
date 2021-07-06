@@ -689,7 +689,7 @@ fn test_reconcile_key(_safety_rules: &Callback) {
     let mut storage = test_utils::test_storage(&signer);
 
     let new_pub_key = storage.internal_store().rotate_key(CONSENSUS_KEY).unwrap();
-    let mut safety_rules = Box::new(SafetyRules::new(storage, false, false));
+    let mut safety_rules = Box::new(SafetyRules::new(storage, false, false, false));
 
     let (mut proof, genesis_qc) = test_utils::make_genesis(&signer);
     let round = genesis_qc.certified_block().round();

@@ -33,6 +33,7 @@ impl Process {
                 verify_vote_proposal_signature,
                 export_consensus_key,
                 network_timeout: config.network_timeout_ms,
+                decoupled_execution: config.decoupled_execution,
             }),
         }
     }
@@ -45,6 +46,7 @@ impl Process {
             data.verify_vote_proposal_signature,
             data.export_consensus_key,
             data.network_timeout,
+            data.decoupled_execution,
         );
     }
 }
@@ -56,6 +58,7 @@ struct ProcessData {
     export_consensus_key: bool,
     // Timeout in Seconds for network operations
     network_timeout: u64,
+    decoupled_execution: bool,
 }
 
 pub struct ProcessService {

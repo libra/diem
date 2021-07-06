@@ -26,6 +26,7 @@ pub struct SafetyRulesConfig {
     // Read/Write/Connect networking operation timeout in milliseconds.
     pub network_timeout_ms: u64,
     pub enable_cached_safety_data: bool,
+    pub decoupled_execution: bool,
 }
 
 impl Default for SafetyRulesConfig {
@@ -40,6 +41,7 @@ impl Default for SafetyRulesConfig {
             // Default value of 30 seconds for a timeout
             network_timeout_ms: 30_000,
             enable_cached_safety_data: true,
+            decoupled_execution: false,
         }
     }
 }

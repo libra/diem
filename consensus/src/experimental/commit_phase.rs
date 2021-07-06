@@ -11,6 +11,7 @@ use consensus_types::{
     executed_block::ExecutedBlock,
     experimental::{commit_decision::CommitDecision, commit_vote::CommitVote},
 };
+use core::sync::atomic::Ordering;
 use diem_crypto::{ed25519::Ed25519Signature, HashValue};
 use diem_infallible::Mutex;
 use diem_logger::prelude::*;
@@ -26,8 +27,9 @@ use futures::{select, SinkExt, StreamExt};
 use safety_rules::TSafetyRules;
 use std::{
     collections::{hash_map::Entry, BTreeMap, HashMap, VecDeque},
-    sync::Arc,
+    sync::{atomic::AtomicU64, Arc},
 };
+use crate::network::NetworkSender;
 
 /*
 ┌───────────┬──────────────────────────────────────┐
@@ -72,15 +74,11 @@ use std::{
 #[derive(Clone)]
 struct PendingBlocks {
     vecblocks: Vec<ExecutedBlock>,
-    ledger_info_sig: LedgerInfoWithSignatures,
 }
 
 impl PendingBlocks {
-    pub fn new(vecblocks: Vec<ExecutedBlock>, ledger_info_sig: LedgerInfoWithSignatures) -> Self {
-        Self {
-            vecblocks,
-            ledger_info_sig,
-        }
+    pub fn new(vecblocks: Vec<ExecutedBlock>) -> Self {
+        Self { vecblocks }
     }
 }
 
@@ -95,12 +93,13 @@ pub struct CommitPhase {
     execution_proxy: Arc<dyn StateComputer>,
     local_cache: HashMap<HashValue, LedgerInfoWithSignatures>,
     local_queue: VecDeque<PendingBlocks>,
-    commit_msg_sender: channel::Sender<CommitPhaseMessage>,
     commit_msg_receiver: channel::Receiver<ConsensusMsg>,
     verifier: ValidatorVerifier,
     safety_rules: Arc<Mutex<MetricsSafetyRules>>,
     author: Author,
     committed_round: Round,
+    back_pressure: Arc<AtomicU64>,
+    network_sender: NetworkSender,
 }
 
 pub async fn commit(
@@ -108,6 +107,7 @@ pub async fn commit(
     vecblock: &[ExecutedBlock],
     ledger_info: &LedgerInfoWithSignatures,
 ) -> Result<(), ExecutionError> {
+    debug!("New commit: {} {}", vecblock.len(), ledger_info);
     // have to maintain the order.
     execution_proxy
         .commit(
@@ -133,28 +133,32 @@ impl CommitPhase {
     pub fn new(
         commit_channel_recv: Receiver<(Vec<ExecutedBlock>, LedgerInfoWithSignatures)>,
         execution_proxy: Arc<dyn StateComputer>,
-        commit_msg_sender: channel::Sender<CommitPhaseMessage>,
         commit_msg_receiver: channel::Receiver<ConsensusMsg>,
         verifier: ValidatorVerifier,
         safety_rules: Arc<Mutex<MetricsSafetyRules>>,
         author: Author,
+        back_pressure: Arc<AtomicU64>,
+        network_sender: NetworkSender,
     ) -> Self {
         Self {
             commit_channel_recv,
             execution_proxy,
             local_cache: HashMap::<HashValue, LedgerInfoWithSignatures>::new(),
             local_queue: VecDeque::<PendingBlocks>::new(),
-            commit_msg_sender,
             commit_msg_receiver,
             verifier,
             safety_rules,
             author,
             committed_round: 0,
+            back_pressure,
+            network_sender,
         }
     }
 
     /// Notified when receiving a commit vote message
     pub async fn process_commit_vote(&mut self, commit_vote: &CommitVote) -> anyhow::Result<()> {
+        debug!("process_commit_vote {}", commit_vote);
+
         let li = commit_vote.ledger_info();
 
         if li.commit_info().round() < self.committed_round {
@@ -180,6 +184,11 @@ impl CommitPhase {
                 );
                 li_sig.add_signature(commit_vote.author(), commit_vote.signature().clone());
                 self.local_cache.insert(executed_state_hash, li_sig);
+                debug!(
+                    "inserted local cache: key: {}, len: {}",
+                    executed_state_hash,
+                    self.local_cache.len()
+                );
             }
         };
 
@@ -190,6 +199,8 @@ impl CommitPhase {
         &mut self,
         commit_decision: CommitDecision,
     ) -> anyhow::Result<()> {
+        debug!("process_commit_decision {}", commit_decision);
+
         let li = commit_decision.ledger_info();
 
         if li.ledger_info().commit_info().round() < self.committed_round {
@@ -215,37 +226,53 @@ impl CommitPhase {
         let mut_local_queue = &mut self.local_queue;
         let mut_local_cache = &mut self.local_cache;
         while let Some(front) = mut_local_queue.front() {
+            // TODO: what is vecblocks is empty?
             let front_executed_state_hash = front
-                .ledger_info_sig
-                .ledger_info()
-                .commit_info()
+                .vecblocks
+                .last()
+                .unwrap()
+                .block_info()
                 .executed_state_id();
             match mut_local_cache.entry(front_executed_state_hash) {
                 Entry::Occupied(ledger_info_occupied_entry) => {
                     // cancel out an item from local_cache and an item from local_queue
+                    debug!(
+                        "Found {}, checking voting power: {}",
+                        front_executed_state_hash,
+                        ledger_info_occupied_entry.get()
+                    );
                     if ledger_info_occupied_entry
                         .get()
-                        .check_voting_power(&self.verifier)
+                        .verify_signatures(&self.verifier)
                         .is_ok()
                     {
                         commit(
                             &self.execution_proxy,
                             &front.vecblocks,
-                            &front.ledger_info_sig,
+                            ledger_info_occupied_entry.get(),
                         )
                         .await
                         .expect("Failed to commit the executed blocks.");
+
+                        let commit_round = front.vecblocks.last().unwrap().block_info().round();
+                        self.back_pressure.store(commit_round, Ordering::SeqCst);
+
+                        debug!("Commit End");
+
                         assert!(
                             self.committed_round
-                                < front.ledger_info_sig.ledger_info().commit_info().round()
+                                < front.vecblocks.last().unwrap().block_info().round()
                         );
-                        self.committed_round =
-                            front.ledger_info_sig.ledger_info().commit_info().round();
-                        self.commit_msg_sender
-                            .send(CommitPhaseMessage::CommitDecision(
-                                ledger_info_occupied_entry.get().clone(),
-                            ))
-                            .await?;
+                        self.committed_round = front.vecblocks.last().unwrap().block_info().round();
+
+                        let mut commit_sender = self.network_sender.clone();
+                        let ledger_info_clone = ledger_info_occupied_entry.get().clone();
+                        tokio::spawn(async move {
+                            commit_sender.broadcast(ConsensusMsg::CommitDecisionMsg(Box::new(
+                                CommitDecision::new(ledger_info_clone),
+                            ))).await;
+                        });
+
                         ledger_info_occupied_entry.remove_entry();
                         mut_local_queue.pop_front();
                     } else {
@@ -253,6 +280,7 @@ impl CommitPhase {
                     }
                 }
                 Entry::Vacant(_) => {
+                    debug!("Not found in the cache: {}", front_executed_state_hash);
                     break;
                 }
             }
@@ -265,53 +293,90 @@ impl CommitPhase {
         vecblock: Vec<ExecutedBlock>,
         ledger_info: LedgerInfoWithSignatures,
     ) -> anyhow::Result<()> {
+        debug!(
+            "process_executed_blocks: vecblock {} ledger_info {}",
+            vecblock.len(),
+            ledger_info
+        );
         let new_ledger_info = LedgerInfo::new(
             vecblock.last().unwrap().block_info(),
             ledger_info.ledger_info().consensus_data_hash(),
         );
+        debug!("build new ledger info: {}", new_ledger_info);
 
-        let sig = self
+        let signature = self
             .safety_rules
             .lock()
-            .sign_commit_vote(ledger_info.clone(), new_ledger_info.clone())?;
-        // if fails, it needs to resend, otherwise the liveness might compromise.
-        self.commit_msg_sender
-            .send(CommitPhaseMessage::CommitVote(
-                self.author,
-                new_ledger_info.clone(),
-                sig,
-            ))
-            .await?;
-        // note that this message will also reach the node itself
+            .sign_commit_vote(ledger_info, new_ledger_info.clone())?;
 
-        self.local_queue
-            .push_back(PendingBlocks::new(vecblock, ledger_info));
+        debug!("signed");
+        // if fails, it needs to resend, otherwise the liveness might compromise.
+
+        let mut commit_sender = self.network_sender.clone();
+        let author = self.author;
+        let msg = ConsensusMsg::CommitVoteMsg(Box::new(CommitVote::new_with_signature(
+            author,
+            new_ledger_info,
+            signature,
+        )));
+
+        debug!("sent commit vote");
+        // note that this message will also reach the node itself
+        self.local_queue.push_back(PendingBlocks::new(vecblock));
+
+        tokio::spawn(async move {
+            commit_sender.broadcast(msg).await;
+        });
 
         Ok(())
     }
 
     pub async fn start(mut self) {
         loop {
-            select! {
-                (vecblock, ledger_info) = self.commit_channel_recv.select_next_some() => {
-                    report_err!(self.process_executed_blocks(vecblock, ledger_info).await, "Error in processing executed blocks");
+            if self.local_queue.is_empty() {
+                select! {
+                    (vecblock, ledger_info) = self.commit_channel_recv.select_next_some() => {
+                        report_err!(self.process_executed_blocks(vecblock, ledger_info).await, "Error in processing executed blocks");
+                    }
+                    msg = self.commit_msg_receiver.select_next_some() => {
+                        match msg {
+                            ConsensusMsg::CommitVoteMsg(request) => {
+                                monitor!(
+                                    "process_commit_vote",
+                                    report_err!(self.process_commit_vote(&*request).await, "Error in processing commit vote.")
+                                );
+                            }
+                            ConsensusMsg::CommitDecisionMsg(request) => {
+                                monitor!(
+                                    "process_commit_decision",
+                                    report_err!(self.process_commit_decision(*request).await, "Error in processing commit decision.")
+                                );
+                            }
+                            _ => {}
+                        };
+                    }
+                    complete => break,
                 }
-                msg = self.commit_msg_receiver.select_next_some() => {
-                    match msg {
-                        ConsensusMsg::CommitVoteMsg(request) => {
-                            monitor!(
-                                "process_commit_vote",
-                                report_err!(self.process_commit_vote(&*request).await, "Error in processing commit vote.")
-                            );
-                        }
-                        ConsensusMsg::CommitDecisionMsg(request) => {
-                            monitor!(
-                                "process_commit_decision",
-                                report_err!(self.process_commit_decision(*request).await, "Error in processing commit decision.")
-                            );
-                        }
-                        _ => {}
-                    };
+            } else {
+                select! {
+                    msg = self.commit_msg_receiver.select_next_some() => {
+                        match msg {
+                            ConsensusMsg::CommitVoteMsg(request) => {
+                                monitor!(
+                                    "process_commit_vote",
+                                    report_err!(self.process_commit_vote(&*request).await, "Error in processing commit vote.")
+                                );
+                            }
+                            ConsensusMsg::CommitDecisionMsg(request) => {
+                                monitor!(
+                                    "process_commit_decision",
+                                    report_err!(self.process_commit_decision(*request).await, "Error in processing commit decision.")
+                                );
+                            }
+                            _ => {}
+                        };
+                    }
+                    complete => break,
                 }
             }
             report_err!(

@@ -24,7 +24,7 @@ use consensus_types::{
 };
 use diem_crypto::{
     ed25519::{Ed25519PublicKey, Ed25519Signature},
-    hash::{CryptoHash, HashValue},
+    hash::{CryptoHash, HashValue, ACCUMULATOR_PLACEHOLDER_HASH},
     traits::Signature,
 };
 use diem_logger::prelude::*;
@@ -48,6 +48,7 @@ pub struct SafetyRules {
     pub(crate) export_consensus_key: bool,
     pub(crate) validator_signer: Option<ConfigurableValidatorSigner>,
     pub(crate) epoch_state: Option<EpochState>,
+    pub(crate) decoupled_execution: bool,
 }
 
 impl SafetyRules {
@@ -57,13 +58,18 @@ impl SafetyRules {
         persistent_storage: PersistentSafetyStorage,
         verify_vote_proposal_signature: bool,
         export_consensus_key: bool,
+        decoupled_execution: bool,
     ) -> Self {
         let execution_public_key = if verify_vote_proposal_signature {
-            Some(
-                persistent_storage
-                    .execution_public_key()
-                    .expect("Unable to retrieve execution public key"),
-            )
+            if decoupled_execution {
+                None
+            } else {
+                Some(
+                    persistent_storage
+                        .execution_public_key()
+                        .expect("Unable to retrieve execution public key"),
+                )
+            }
         } else {
             None
         };
@@ -73,6 +79,7 @@ impl SafetyRules {
             export_consensus_key,
             validator_signer: None,
             epoch_state: None,
+            decoupled_execution,
         }
     }
 
@@ -85,10 +92,12 @@ impl SafetyRules {
         let execution_signature = maybe_signed_vote_proposal.signature.as_ref();
 
         if let Some(public_key) = self.execution_public_key.as_ref() {
-            execution_signature
-                .ok_or(Error::VoteProposalSignatureNotFound)?
-                .verify(vote_proposal, public_key)
-                .map_err(|error| Error::InternalError(error.to_string()))?;
+            if self.decoupled_execution {
+                execution_signature
+                    .ok_or(Error::VoteProposalSignatureNotFound)?
+                    .verify(vote_proposal, public_key)
+                    .map_err(|error| Error::InternalError(error.to_string()))?;
+            }
         }
 
         let proposed_block = vote_proposal.block();
@@ -152,23 +161,34 @@ impl SafetyRules {
     /// Check if the executed result extends the parent result.
     fn extension_check(&self, vote_proposal: &VoteProposal) -> Result<VoteData, Error> {
         let proposed_block = vote_proposal.block();
-        let new_tree = vote_proposal
-            .accumulator_extension_proof()
-            .verify(
-                proposed_block
-                    .quorum_cert()
-                    .certified_block()
-                    .executed_state_id(),
-            )
-            .map_err(|e| Error::InvalidAccumulatorExtension(e.to_string()))?;
-        Ok(VoteData::new(
-            proposed_block.gen_block_info(
-                new_tree.root_hash(),
-                new_tree.version(),
-                vote_proposal.next_epoch_state().cloned(),
-            ),
-            proposed_block.quorum_cert().certified_block().clone(),
-        ))
+        if !self.decoupled_execution {
+            let new_tree = vote_proposal
+                .accumulator_extension_proof()
+                .verify(
+                    proposed_block
+                        .quorum_cert()
+                        .certified_block()
+                        .executed_state_id(),
+                )
+                .map_err(|e| Error::InvalidAccumulatorExtension(e.to_string()))?;
+            Ok(VoteData::new(
+                proposed_block.gen_block_info(
+                    new_tree.root_hash(),
+                    new_tree.version(),
+                    vote_proposal.next_epoch_state().cloned(),
+                ),
+                proposed_block.quorum_cert().certified_block().clone(),
+            ))
+        } else {
+            Ok(VoteData::new(
+                proposed_block.gen_block_info(
+                    *ACCUMULATOR_PLACEHOLDER_HASH,
+                    0,
+                    vote_proposal.next_epoch_state().cloned(),
+                ),
+                proposed_block.quorum_cert().certified_block().clone(),
+            ))
+        }
     }
 
     /// Produces a LedgerInfo that either commits a block based upon the 3-chain

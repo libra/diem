@@ -29,6 +29,7 @@ fn safety_rules(
             storage,
             verify_vote_proposal_signature,
             export_consensus_key,
+            false,
         );
         let safety_rules = safety_rules_manager.client();
         (

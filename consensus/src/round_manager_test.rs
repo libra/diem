@@ -36,6 +36,7 @@ use consensus_types::{
     vote_msg::VoteMsg,
 };
 use diem_crypto::{ed25519::Ed25519PrivateKey, HashValue, Uniform};
+use diem_infallible::Mutex;
 use diem_secure_storage::Storage;
 use diem_types::{
     epoch_state::EpochState,
@@ -55,7 +56,10 @@ use network::{
     protocols::network::{Event, NewNetworkEvents, NewNetworkSender},
 };
 use safety_rules::{PersistentSafetyStorage, SafetyRulesManager};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{atomic::AtomicU64, Arc},
+    time::Duration,
+};
 use tokio::runtime::Handle;
 
 /// Auxiliary struct that is setting up node environment for the test.
@@ -107,7 +111,8 @@ impl NodeSetup {
                 waypoint,
                 true,
             );
-            let safety_rules_manager = SafetyRulesManager::new_local(safety_storage, false, false);
+            let safety_rules_manager =
+                SafetyRulesManager::new_local(safety_storage, false, false, false);
 
             nodes.push(Self::new(
                 playground,
@@ -197,11 +202,14 @@ impl NodeSetup {
             round_state,
             proposer_election,
             proposal_generator,
-            safety_rules,
+            Arc::new(Mutex::new(safety_rules)),
             network,
             Arc::new(MockTransactionManager::new(None)),
             storage.clone(),
             false,
+            Arc::new(AtomicU64::new(0)),
+            false,
+            10,
         );
         block_on(round_manager.start(last_vote_sent));
         Self {
@@ -868,10 +876,12 @@ fn safety_rules_crash() {
             true,
         );
 
-        node.safety_rules_manager = SafetyRulesManager::new_local(safety_storage, false, false);
+        node.safety_rules_manager =
+            SafetyRulesManager::new_local(safety_storage, false, false, false);
         let safety_rules =
             MetricsSafetyRules::new(node.safety_rules_manager.client(), node.storage.clone());
-        node.round_manager.set_safety_rules(safety_rules);
+        let safety_rules_container = Arc::new(Mutex::new(safety_rules));
+        node.round_manager.set_safety_rules(safety_rules_container);
     }
 
     timed_block_on(&mut runtime, async {

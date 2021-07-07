@@ -200,6 +200,10 @@ cfg_websocket! {
     }
 
     impl StreamError {
+        pub fn json_rpc_error(&self) -> Option<&JsonRpcError> {
+            self.inner.json_rpc_error.as_ref()
+        }
+
         pub(crate) fn from_tungstenite_error(e: tungstenite::Error) -> Self {
             match e {
                 tungstenite::Error::ConnectionClosed => Self::connection_closed(None::<Self>),
@@ -252,10 +256,6 @@ cfg_websocket! {
                     json_rpc_error: Some(error),
                 }),
             }
-        }
-
-        pub fn json_rpc_error(&self) -> Option<&JsonRpcError> {
-            self.inner.json_rpc_error.as_ref()
         }
 
         fn new<E: Into<BoxError>>(kind: StreamKind, source: Option<E>) -> Self {

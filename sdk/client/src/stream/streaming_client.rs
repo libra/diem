@@ -123,7 +123,6 @@ impl StreamingClient {
         Ok(sct)
     }
 
-    #[allow(unused)]
     pub async fn subscribe_transactions(
         &mut self,
         starting_version: u64,
@@ -136,7 +135,6 @@ impl StreamingClient {
         self.send_subscription(request).await
     }
 
-    #[allow(unused)]
     pub async fn subscribe_events(
         &mut self,
         event_key: EventKey,
@@ -203,6 +201,7 @@ impl StreamingClient {
         let msg = match msg {
             Ok(msg) => msg,
             Err(e) => {
+                // We return here because if the channel is closed, it would be handled elsewhere
                 warn!("StreamingClient received error on channel: {:?}", e);
                 return Ok(());
             }

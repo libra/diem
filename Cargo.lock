@@ -6736,11 +6736,8 @@ dependencies = [
  "bcs",
  "diem-sdk",
  "diem-workspace-hack",
- "futures",
  "once_cell",
  "rand 0.8.3",
- "tokio",
- "url",
 ]
 
 [[package]]

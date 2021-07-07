@@ -3,16 +3,12 @@
 
 use anyhow::Result;
 use diem_sdk::{
-    client::{
-        stream::{StreamingClient, StreamingClientConfig},
-        BlockingClient, FaucetClient, StreamResult,
-    },
+    client::{BlockingClient, FaucetClient},
     transaction_builder::{Currency, TransactionFactory},
     types::{chain_id::ChainId, transaction::authenticator::AuthenticationKey, LocalAccount},
 };
 use once_cell::sync::OnceCell;
 use std::env;
-use url::Url;
 
 const JSON_RPC_URL: &str = "JSON_RPC_URL";
 const FAUCET_URL: &str = "FAUCET_URL";
@@ -58,22 +54,8 @@ impl Environment {
         &self.json_rpc_url
     }
 
-    pub fn websocket_rpc_url(&self) -> String {
-        let mut url = Url::parse(&self.json_rpc_url).expect("Invalid json_rpc_url");
-        url.set_scheme("ws").expect("Could not set scheme");
-        url.set_path("/v1/stream/ws");
-        url.to_string()
-    }
-
     pub fn client(&self) -> BlockingClient {
         BlockingClient::new(self.json_rpc_url())
-    }
-
-    pub async fn streaming_client(
-        &self,
-        config: Option<StreamingClientConfig>,
-    ) -> StreamResult<StreamingClient> {
-        StreamingClient::new(self.websocket_rpc_url(), config.unwrap_or_default(), None).await
     }
 
     pub fn coffer(&self) -> &Coffer {
@@ -104,24 +86,5 @@ impl Coffer {
                 .fund(currency.as_str(), auth_key, amount)
                 .map_err(Into::into),
         }
-    }
-}
-
-///////////
-// Tests //
-///////////
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_websocket_url() {
-        let json_rpc_url = "http://localhost:1337/v1".to_string();
-        let coffer = FaucetClient::new(json_rpc_url.clone(), json_rpc_url.clone());
-        let env = Environment::new(json_rpc_url, Coffer::Faucet(coffer), ChainId::test());
-
-        let expected = "ws://localhost:1337/v1/stream/ws";
-        assert_eq!(env.websocket_rpc_url(), expected)
     }
 }

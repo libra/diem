@@ -8,10 +8,10 @@ use crate::test_utils::{
 };
 use cli::client_proxy::ClientProxy;
 
-use diem_client::stream::{
+use diem_json_rpc_types::Id;
+use diem_sdk::client::stream::{
     request::StreamMethod, response::StreamJsonRpcResponseView, StreamingClientConfig,
 };
-use diem_json_rpc_types::Id;
 use diem_types::{ledger_info::LedgerInfo, waypoint::Waypoint};
 use futures::StreamExt;
 use std::time::Duration;
@@ -103,7 +103,6 @@ fn test_get_events_via_websocket_stream() {
             StreamJsonRpcResponseView::Event(_) => {}
             _ => panic!("Expected 'Event', but got: {:?}", response_view),
         }
-
     }
 }
 

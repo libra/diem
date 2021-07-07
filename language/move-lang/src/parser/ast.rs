@@ -189,12 +189,19 @@ new_name!(StructName);
 pub type ResourceLoc = Option<Loc>;
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct StructTypeParameter {
+    pub is_phantom: bool,
+    pub name: Name,
+    pub constraints: Vec<Ability>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct StructDefinition {
     pub attributes: Vec<Attributes>,
     pub loc: Loc,
     pub abilities: Vec<Ability>,
     pub name: StructName,
-    pub type_parameters: Vec<(Name, Vec<Ability>)>,
+    pub type_parameters: Vec<StructTypeParameter>,
     pub fields: StructFields,
 }
 
@@ -1456,13 +1463,37 @@ impl AstDebug for (Name, Vec<Ability>) {
     fn ast_debug(&self, w: &mut AstWriter) {
         let (n, abilities) = self;
         w.write(&n.value);
-        if !abilities.is_empty() {
-            w.write(": ");
-            w.list(abilities, "+", |w, ab| {
-                ab.ast_debug(w);
-                false
-            })
+        ability_constraints_ast_debug(w, abilities);
+    }
+}
+
+impl AstDebug for Vec<StructTypeParameter> {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        if !self.is_empty() {
+            w.write("<");
+            w.comma(self, |w, tp| tp.ast_debug(w));
+            w.write(">");
         }
+    }
+}
+
+impl AstDebug for StructTypeParameter {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        w.write(&self.name.value);
+        if self.is_phantom {
+            w.write("phantom ");
+        }
+        ability_constraints_ast_debug(w, &self.constraints);
+    }
+}
+
+fn ability_constraints_ast_debug(w: &mut AstWriter, abilities: &[Ability]) {
+    if !abilities.is_empty() {
+        w.write(": ");
+        w.list(abilities, "+", |w, ab| {
+            ab.ast_debug(w);
+            false
+        })
     }
 }
 

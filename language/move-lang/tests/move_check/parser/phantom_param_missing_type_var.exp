@@ -1,0 +1,9 @@
+error[E01002]: unexpected token
+  ┌─ tests/move_check/parser/phantom_param_missing_type_var.move:2:25
+  │
+2 │     struct S<T1, phantom> {
+  │                         ^
+  │                         │
+  │                         Unexpected '>'
+  │                         Expected an identifier
+

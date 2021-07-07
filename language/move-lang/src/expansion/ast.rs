@@ -129,11 +129,18 @@ pub enum Neighbor {
 pub type Fields<T> = UniqueMap<Field, (usize, T)>;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StructTypeParameter {
+    pub is_phantom: bool,
+    pub name: Name,
+    pub constraints: AbilitySet,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructDefinition {
     pub attributes: Vec<Attribute>,
     pub loc: Loc,
     pub abilities: AbilitySet,
-    pub type_parameters: Vec<(Name, AbilitySet)>,
+    pub type_parameters: Vec<StructTypeParameter>,
     pub fields: StructFields,
 }
 
@@ -1161,6 +1168,16 @@ impl AstDebug for Vec<(Name, AbilitySet)> {
     }
 }
 
+impl AstDebug for Vec<StructTypeParameter> {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        if !self.is_empty() {
+            w.write("<");
+            w.comma(self, |w, tp| tp.ast_debug(w));
+            w.write(">")
+        }
+    }
+}
+
 pub fn ability_constraints_ast_debug(w: &mut AstWriter, abilities: &AbilitySet) {
     if !abilities.is_empty() {
         w.write(": ");
@@ -1176,6 +1193,16 @@ impl AstDebug for (Name, AbilitySet) {
         let (n, abilities) = self;
         w.write(&n.value);
         ability_constraints_ast_debug(w, abilities)
+    }
+}
+
+impl AstDebug for StructTypeParameter {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        if self.is_phantom {
+            w.write("phantom ");
+        }
+        w.write(&self.name.value);
+        ability_constraints_ast_debug(w, &self.constraints)
     }
 }
 

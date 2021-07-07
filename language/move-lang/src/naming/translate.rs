@@ -496,7 +496,7 @@ fn function(context: &mut Context, _name: FunctionName, f: E::Function) -> N::Fu
 }
 
 fn function_signature(context: &mut Context, sig: E::FunctionSignature) -> N::FunctionSignature {
-    let type_parameters = type_parameters(context, sig.type_parameters);
+    let type_parameters = fun_type_parameters(context, sig.type_parameters);
     let parameters = sig
         .parameters
         .into_iter()
@@ -625,7 +625,7 @@ fn struct_def(
 ) -> N::StructDefinition {
     let attributes = sdef.attributes;
     let abilities = sdef.abilities;
-    let type_parameters = type_parameters(context, sdef.type_parameters);
+    let type_parameters = struct_type_parameters(context, sdef.type_parameters);
     let fields = struct_fields(context, sdef.fields);
     N::StructDefinition {
         attributes,
@@ -669,40 +669,62 @@ fn constant(context: &mut Context, _name: ConstantName, econstant: E::Constant) 
 // Types
 //**************************************************************************************************
 
-fn type_parameters(
+fn fun_type_parameters(
     context: &mut Context,
     type_parameters: Vec<(Name, AbilitySet)>,
 ) -> Vec<N::TParam> {
     let mut unique_tparams = UniqueMap::new();
     type_parameters
         .into_iter()
-        .map(|(name, abilities)| {
-            let id = N::TParamID::next();
-            let user_specified_name = name.clone();
-            let tp = N::TParam {
-                id,
-                user_specified_name,
-                abilities,
-            };
-            let loc = name.loc;
-            context.bind_type(
-                name.value.to_string(),
-                ResolvedType::TParam(loc, tp.clone()),
-            );
-            if let Err((name, old_loc)) = unique_tparams.add(name, ()) {
-                let msg = format!("Duplicate type parameter declared with name '{}'", name);
-                context.env.add_diag(diag!(
-                    Declarations::DuplicateItem,
-                    (loc, msg),
-                    (
-                        old_loc,
-                        "Type parameter previously defined here".to_string()
-                    ),
-                ))
-            }
-            tp
+        .map(|(name, abilities)| type_parameter(context, &mut unique_tparams, name, abilities))
+        .collect()
+}
+
+fn struct_type_parameters(
+    context: &mut Context,
+    type_parameters: Vec<E::StructTypeParameter>,
+) -> Vec<N::StructTypeParameter> {
+    let mut unique_tparams = UniqueMap::new();
+    type_parameters
+        .into_iter()
+        .map(|param| {
+            let is_phantom = param.is_phantom;
+            let param = type_parameter(context, &mut unique_tparams, param.name, param.constraints);
+            N::StructTypeParameter { param, is_phantom }
         })
         .collect()
+}
+
+fn type_parameter(
+    context: &mut Context,
+    unique_tparams: &mut UniqueMap<Name, ()>,
+    name: Name,
+    abilities: AbilitySet,
+) -> N::TParam {
+    let id = N::TParamID::next();
+    let user_specified_name = name.clone();
+    let tp = N::TParam {
+        id,
+        user_specified_name,
+        abilities,
+    };
+    let loc = name.loc;
+    context.bind_type(
+        name.value.to_string(),
+        ResolvedType::TParam(loc, tp.clone()),
+    );
+    if let Err((name, old_loc)) = unique_tparams.add(name, ()) {
+        let msg = format!("Duplicate type parameter declared with name '{}'", name);
+        context.env.add_diag(diag!(
+            Declarations::DuplicateItem,
+            (loc, msg),
+            (
+                old_loc,
+                "Type parameter previously defined here".to_string()
+            ),
+        ))
+    }
+    tp
 }
 
 fn types(context: &mut Context, tys: Vec<E::Type>) -> Vec<N::Type> {

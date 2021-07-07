@@ -548,11 +548,10 @@ fn struct_def(context: &mut Context, s: &mut N::StructDefinition) {
 
     let declared_abilities = &s.abilities;
     let tparam_subst = &core::make_tparam_subst(
-        &s.type_parameters,
+        s.type_parameters.iter().map(|tp| &tp.param),
         s.type_parameters
             .iter()
-            .map(|tp| sp(tp.user_specified_name.loc, Type_::Anything))
-            .collect(),
+            .map(|tp| sp(tp.param.user_specified_name.loc, Type_::Anything)),
     );
     for (_field_loc, _field, idx_ty) in field_map.iter() {
         let loc = idx_ty.1.loc;

@@ -5,7 +5,7 @@ use crate::{
     expansion::ast::{
         ability_modifiers_ast_debug, AbilitySet, Attribute, Friend, ModuleIdent, SpecId, Value,
     },
-    naming::ast::{BuiltinTypeName, BuiltinTypeName_, TParam},
+    naming::ast::{BuiltinTypeName, BuiltinTypeName_, StructTypeParameter, TParam},
     parser::ast::{BinOp, ConstantName, Field, FunctionName, StructName, UnaryOp, Var, Visibility},
     shared::{ast_debug::*, unique_map::UniqueMap, AddressBytes, Name},
 };
@@ -63,7 +63,7 @@ pub struct ModuleDefinition {
 pub struct StructDefinition {
     pub attributes: Vec<Attribute>,
     pub abilities: AbilitySet,
-    pub type_parameters: Vec<TParam>,
+    pub type_parameters: Vec<StructTypeParameter>,
     pub fields: StructFields,
 }
 

@@ -14,7 +14,7 @@ default = ["async", "blocking", "faucet", "websocket"]
 blocking = ["ureq", "ipnet"]
 async = ["reqwest", "tokio"]
 faucet = ["reqwest", "reqwest/blocking", "blocking"]
-websocket = ["async", "futures", "tokio-tungstenite", "async-trait"]
+websocket = ["async", "futures", "tokio-tungstenite"]
 
 [dependencies]
 anyhow = "1.0.38"
@@ -36,7 +36,6 @@ tokio = { version = "1.6.1", features = ["time"], default_features = false, opti
 tokio-tungstenite = { version = "0.14", optional = true }
 ureq = { version = "1.5.4", features = ["json", "native-tls"], default-features = false, optional = true }
 ipnet = { version = "2.3", optional = true }
-async-trait = { version = "0.1.42", optional = true }
 
 [dev-dependencies]
 diem-workspace-hack = { path = "../../common/workspace-hack" }

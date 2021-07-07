@@ -183,6 +183,7 @@ cfg_websocket! {
         IdAlreadyUsed,
         IdNotFound(Option<StreamJsonRpcResponse>),
         QueueFullError,
+        JsonRpcError,
         SubscriptionOkTimeout
     }
 
@@ -241,6 +242,20 @@ cfg_websocket! {
 
         pub(crate) fn subscription_ok_timeout() -> Self {
             Self::new(StreamKind::SubscriptionOkTimeout, None::<Self>)
+        }
+
+        pub(crate) fn subscription_json_rpc_error(error: JsonRpcError) -> Self{
+            Self {
+                inner: Box::new(StreamInner {
+                    kind: StreamKind::JsonRpcError,
+                    source: None,
+                    json_rpc_error: Some(error),
+                }),
+            }
+        }
+
+        pub fn json_rpc_error(&self) -> Option<&JsonRpcError> {
+            self.inner.json_rpc_error.as_ref()
         }
 
         fn new<E: Into<BoxError>>(kind: StreamKind, source: Option<E>) -> Self {

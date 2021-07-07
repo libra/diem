@@ -14,27 +14,23 @@ use futures::Stream;
 use std::{
     collections::HashMap,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 use tokio::{
     sync::{mpsc, RwLock},
-    time::sleep,
+    time::timeout,
 };
+
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tracing::{debug, warn, trace};
 
 pub(crate) type StreamingClientReceiver = mpsc::Receiver<StreamResult<StreamJsonRpcResponse>>;
 pub(crate) type StreamingClientSender = mpsc::Sender<StreamResult<StreamJsonRpcResponse>>;
-pub type SubscriptionStreamResult = StreamResult<SubscriptionStream>;
 
 struct SubscriptionSender {
     pub id: Id,
-    pub message_received: AtomicBool,
     pub sender: StreamingClientSender,
 }
 
@@ -42,20 +38,30 @@ impl SubscriptionSender {
     pub fn new(id: Id, sender: StreamingClientSender) -> Self {
         Self {
             id,
-            message_received: AtomicBool::from(false),
             sender,
         }
     }
 }
 
 pub struct SubscriptionStream {
-    pub id: Id,
+    id: Id,
     stream: StreamingClientReceiver,
 }
 
 impl SubscriptionStream {
     fn new(id: Id, stream: StreamingClientReceiver) -> Self {
         Self { id, stream }
+    }
+
+    pub fn id(&self) -> &Id {
+        &self.id
+    }
+
+    pub async fn wait_for_msg(&mut self) -> StreamResult<StreamResult<StreamJsonRpcResponse>> {
+        match self.stream.recv().await {
+            None => Err(StreamError::connection_closed(None::<StreamError>)),
+            Some(msg) => Ok(msg),
+        }
     }
 }
 
@@ -122,7 +128,7 @@ impl StreamingClient {
         &mut self,
         starting_version: u64,
         include_events: Option<bool>,
-    ) -> SubscriptionStreamResult {
+    ) -> StreamResult<SubscriptionStream> {
         let request = StreamMethodRequest::SubscribeToTransactions(SubscribeToTransactionsParams {
             starting_version,
             include_events,
@@ -135,7 +141,7 @@ impl StreamingClient {
         &mut self,
         event_key: EventKey,
         event_seq_num: u64,
-    ) -> SubscriptionStreamResult {
+    ) -> StreamResult<SubscriptionStream> {
         let request = StreamMethodRequest::SubscribeToEvents(SubscribeToEventsParams {
             event_key,
             event_seq_num,
@@ -146,17 +152,40 @@ impl StreamingClient {
     pub async fn send_subscription(
         &mut self,
         request: StreamMethodRequest,
-    ) -> SubscriptionStreamResult {
-        let subscription_stream = self.get_and_register_id().await?;
+    ) -> StreamResult<SubscriptionStream> {
+        let mut subscription_stream = self.get_and_register_id().await?;
         let res = self
             .client
             .write()
             .await
-            .send_method_request(request, Some(subscription_stream.id.clone()))
+            .send_method_request(request, Some(subscription_stream.id().clone()))
             .await;
 
-        self.maybe_clear_subscription(&subscription_stream.id, res)
-            .await?;
+        let id = match res {
+            Ok(id) => id,
+            Err(e) => {
+                self.clear_subscription(&subscription_stream.id()).await;
+                return Err(e);
+            }
+        };
+
+        debug!("StreamingClient starting OkTimeout task for id: {:?}", &id);
+        let duration = Duration::from_millis(self.config.ok_timeout_millis);
+        // The `res??` handles the channel being closed before we get our first message
+        let msg = match timeout(duration, subscription_stream.wait_for_msg()).await {
+            Ok(res) => res??,
+            Err(_) => {
+                debug!("StreamingClient OkTimeout for id: {:?}", &id);
+                self.clear_subscription(&id).await;
+                return Err(StreamError::subscription_ok_timeout());
+            }
+        };
+
+        if let Some(err) = msg.error {
+            self.clear_subscription(&id).await;
+            return Err(StreamError::subscription_json_rpc_error(err));
+        }
+
         Ok(subscription_stream)
     }
 
@@ -198,9 +227,6 @@ impl StreamingClient {
                     Err(StreamError::connection_closed(Some(e)))
                 }
                 Ok(_) => {
-                    if !sender.message_received.load(Ordering::Relaxed) {
-                        sender.message_received.store(true, Ordering::Relaxed);
-                    }
                     debug!("StreamingClient forwarded message: {:?}", &msg);
                     Ok(())
                 }
@@ -237,47 +263,14 @@ impl StreamingClient {
         tokio::task::spawn(async move { while clone.handle_next_message().await.is_ok() {} });
     }
 
-    async fn maybe_clear_subscription(&self, id: &Id, res: StreamResult<Id>) -> StreamResult<Id> {
-        match res {
-            Ok(id) => Ok(id),
-            Err(e) => {
-                self.clear_subscription(&id).await;
-                Err(e)
-            }
-        }
-    }
-
     async fn clear_subscription(&self, id: &Id) {
         debug!("StreamingClient clearing subscription: {:?}", &id);
         self.subscriptions.write().await.remove(id);
     }
 
-    async fn clear_subscription_if_not_ok(&self, id: &Id) {
-        if let Some(sender) = self.subscriptions.read().await.get(&id) {
-            if !sender.message_received.load(Ordering::Relaxed) {
-                debug!("StreamingClient OkTimeout for id: {:?}", &id);
-                sender
-                    .sender
-                    .send(Err(StreamError::subscription_ok_timeout()))
-                    .await
-                    .ok();
-                self.subscriptions.write().await.remove(id);
-            }
-        }
-    }
-
-    async fn get_and_register_id(&self) -> SubscriptionStreamResult {
+    async fn get_and_register_id(&self) -> StreamResult<SubscriptionStream> {
         let id = self.client.read().await.get_next_id();
         let receiver = self.register_subscription(id.clone()).await?;
-
-        debug!("StreamingClient starting OkTimeout task for id: {:?}", &id);
-        let clone = self.clone();
-        let id2 = id.clone();
-        tokio::task::spawn(async move {
-            sleep(Duration::from_millis(clone.config.ok_timeout_millis)).await;
-            clone.clear_subscription_if_not_ok(&id2).await;
-        });
-
         Ok(SubscriptionStream::new(id, receiver))
     }
 }

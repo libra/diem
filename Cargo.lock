@@ -1553,7 +1553,6 @@ name = "diem-client"
 version = "0.0.2"
 dependencies = [
  "anyhow",
- "async-trait",
  "bcs",
  "diem-crypto",
  "diem-json-rpc-types",

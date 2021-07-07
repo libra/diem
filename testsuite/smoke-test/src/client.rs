@@ -72,7 +72,12 @@ fn test_get_events_via_websocket_stream() {
                 panic!("Error subscribing to currency '{}': {}", &currency.code, e)
             });
 
-        assert_eq!(subscription_stream.id, Id::Number(i as u64));
+        assert_eq!(subscription_stream.id(), &Id::Number(i as u64));
+
+        // If we're here, then the subscription has already sent the 'OK' message
+        if &currency.code != "XUS" {
+            continue;
+        }
 
         println!("Getting msg 1 for {}", &currency.code);
 
@@ -95,40 +100,10 @@ fn test_get_events_via_websocket_stream() {
             .unwrap_or_else(|| panic!("Currency '{}' response 1 view is None", &currency.code));
 
         match response_view {
-            StreamJsonRpcResponseView::SubscribeResult(_) => {}
-            _ => panic!("Expected 'SubscribeResult', but got: {:?}", response_view),
+            StreamJsonRpcResponseView::Event(_) => {}
+            _ => panic!("Expected 'Event', but got: {:?}", response_view),
         }
 
-        if &currency.code != "XUS" {
-            continue;
-        }
-
-        println!("Getting msg 2 for {}", &currency.code);
-
-        let response = rt
-            .block_on(timeout(ms_500, subscription_stream.next()))
-            .unwrap_or_else(|e| panic!("Timeout getting message 2: {}", e))
-            .unwrap_or_else(|| panic!("Currency '{}' response 2 is None", &currency.code))
-            .unwrap_or_else(|e| panic!("Currency '{}' response 2 is Err: {}", &currency.code, e));
-
-        println!("Got msg 2 for {}: {:?}", &currency.code, &response);
-
-        let response_view = response
-            .parse_result(&StreamMethod::SubscribeToEvents)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Currency '{}' response 2 view is err: {}",
-                    &currency.code, e
-                )
-            })
-            .unwrap_or_else(|| panic!("Currency '{}' response 2 view is None", &currency.code));
-
-        match response_view {
-            StreamJsonRpcResponseView::Event(event) => {
-                assert_eq!(event.key, currency.mint_events_key)
-            }
-            _ => panic!("Expected 'SubscribeResult' 2, but got: {:?}", response_view),
-        }
     }
 }
 

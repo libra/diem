@@ -74,6 +74,7 @@ impl FromStr for StreamJsonRpcRequest {
 pub enum StreamMethodRequest {
     SubscribeToTransactions(SubscribeToTransactionsParams),
     SubscribeToEvents(SubscribeToEventsParams),
+    Unsubscribe,
 }
 
 impl StreamMethodRequest {
@@ -92,6 +93,7 @@ impl StreamMethodRequest {
             StreamMethod::SubscribeToEvents => {
                 StreamMethodRequest::SubscribeToEvents(serde_json::from_value(value)?)
             }
+            StreamMethod::Unsubscribe => StreamMethodRequest::Unsubscribe,
         };
 
         Ok(method_request)
@@ -103,6 +105,7 @@ impl StreamMethodRequest {
                 StreamMethod::SubscribeToTransactions
             }
             StreamMethodRequest::SubscribeToEvents(_) => StreamMethod::SubscribeToEvents,
+            StreamMethodRequest::Unsubscribe => StreamMethod::Unsubscribe,
         }
     }
 }
@@ -112,6 +115,7 @@ impl StreamMethodRequest {
 pub enum StreamMethod {
     SubscribeToTransactions,
     SubscribeToEvents,
+    Unsubscribe,
 }
 
 impl StreamMethod {
@@ -119,6 +123,7 @@ impl StreamMethod {
         match self {
             StreamMethod::SubscribeToTransactions => "subscribe_to_transactions",
             StreamMethod::SubscribeToEvents => "subscribe_to_events",
+            StreamMethod::Unsubscribe => "unsubscribe",
         }
     }
 }

@@ -15,7 +15,10 @@ use diem_sdk::client::stream::{
 use diem_types::{ledger_info::LedgerInfo, waypoint::Waypoint};
 use futures::StreamExt;
 use std::time::Duration;
-use tokio::{runtime::Runtime, time::timeout};
+use tokio::{
+    runtime::Runtime,
+    time::{sleep, timeout},
+};
 
 #[test]
 fn test_create_mint_transfer_block_metadata() {
@@ -74,35 +77,66 @@ fn test_get_events_via_websocket_stream() {
 
         assert_eq!(subscription_stream.id(), &Id::Number(i as u64));
 
+        let count_before = rt
+            .block_on(timeout(ms_500, s_client.subscription_count()))
+            .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
+        assert_eq!(count_before, 1, "Only one subscription should be running");
+
         // If we're here, then the subscription has already sent the 'OK' message
-        if &currency.code != "XUS" {
-            continue;
+        let count_after;
+        if &currency.code == "XUS" {
+            println!("Getting msg 1 for {}", &currency.code);
+
+            let response = rt
+                .block_on(timeout(ms_500, subscription_stream.next()))
+                .unwrap_or_else(|e| panic!("Timeout getting message 1: {}", e))
+                .unwrap_or_else(|| panic!("Currency '{}' response 1 is None", &currency.code))
+                .unwrap_or_else(|e| {
+                    panic!("Currency '{}' response 1 is Err: {}", &currency.code, e)
+                });
+
+            println!("Got msg 1 for {}: {:?}", &currency.code, &response);
+
+            let response_view = response
+                .parse_result(&StreamMethod::SubscribeToEvents)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Currency '{}' response 1 view is err: {}",
+                        &currency.code, e
+                    )
+                })
+                .unwrap_or_else(|| panic!("Currency '{}' response 1 view is None", &currency.code));
+
+            match response_view {
+                StreamJsonRpcResponseView::Event(_) => {}
+                _ => panic!("Expected 'Event', but got: {:?}", response_view),
+            }
+
+            rt.block_on(timeout(
+                ms_500,
+                s_client.send_unsubscribe(subscription_stream.id()),
+            ))
+            .unwrap_or_else(|e| panic!("Timeout unsubscribing from {}: {}", &currency.code, e))
+            .unwrap_or_else(|e| panic!("Currency '{}' unsubscribe err: {}", &currency.code, e));
+
+            rt.block_on(sleep(ms_500));
+
+            count_after = rt
+                .block_on(timeout(ms_500, s_client.subscription_count()))
+                .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
+        } else {
+            drop(subscription_stream);
+
+            rt.block_on(sleep(ms_500));
+
+            count_after = rt
+                .block_on(timeout(ms_500, s_client.subscription_count()))
+                .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
         }
-
-        println!("Getting msg 1 for {}", &currency.code);
-
-        let response = rt
-            .block_on(timeout(ms_500, subscription_stream.next()))
-            .unwrap_or_else(|e| panic!("Timeout getting message 1: {}", e))
-            .unwrap_or_else(|| panic!("Currency '{}' response 1 is None", &currency.code))
-            .unwrap_or_else(|e| panic!("Currency '{}' response 1 is Err: {}", &currency.code, e));
-
-        println!("Got msg 1 for {}: {:?}", &currency.code, &response);
-
-        let response_view = response
-            .parse_result(&StreamMethod::SubscribeToEvents)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Currency '{}' response 1 view is err: {}",
-                    &currency.code, e
-                )
-            })
-            .unwrap_or_else(|| panic!("Currency '{}' response 1 view is None", &currency.code));
-
-        match response_view {
-            StreamJsonRpcResponseView::Event(_) => {}
-            _ => panic!("Expected 'Event', but got: {:?}", response_view),
-        }
+        assert_eq!(
+            count_after, 0,
+            "No subscriptions should be running at the end"
+        );
     }
 }
 

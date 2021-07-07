@@ -31,6 +31,7 @@ impl CallableStreamMethod {
             StreamMethodRequest::SubscribeToEvents(params) => {
                 EventsSubscription::default().run(helper, params)
             }
+            StreamMethodRequest::Unsubscribe => unreachable!(),
         }
     }
 }

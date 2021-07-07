@@ -15,6 +15,7 @@ pub enum StreamJsonRpcResponseView {
     Transaction(TransactionView),
     Event(EventView),
     SubscribeResult(SubscribeResult),
+    UnsubscribeResult(UnsubscribeResult),
 }
 
 impl StreamJsonRpcResponseView {
@@ -26,11 +27,16 @@ impl StreamJsonRpcResponseView {
         if value.get("status").is_some() {
             return Ok(Self::SubscribeResult(serde_json::from_value(value)?));
         }
+        // Handle unsubscribe results message
+        if value.get("unsubscribe").is_some() {
+            return Ok(Self::UnsubscribeResult(serde_json::from_value(value)?));
+        }
         Ok(match method {
             StreamMethod::SubscribeToTransactions => {
                 Self::Transaction(serde_json::from_value(value)?)
             }
             StreamMethod::SubscribeToEvents => Self::Event(serde_json::from_value(value)?),
+            StreamMethod::Unsubscribe => Self::UnsubscribeResult(serde_json::from_value(value)?),
         })
     }
 }
@@ -94,6 +100,19 @@ impl FromStr for StreamJsonRpcResponse {
 pub enum SubscriptionResult {
     #[serde(rename = "OK")]
     OK,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct UnsubscribeResult {
+    pub unsubscribe: SubscriptionResult,
+}
+
+impl UnsubscribeResult {
+    pub fn ok() -> Self {
+        Self {
+            unsubscribe: SubscriptionResult::OK,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

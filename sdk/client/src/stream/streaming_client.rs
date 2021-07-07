@@ -46,11 +46,12 @@ impl SubscriptionSender {
 pub struct SubscriptionStream {
     id: Id,
     stream: StreamingClientReceiver,
+    client: StreamingClient,
 }
 
 impl SubscriptionStream {
-    fn new(id: Id, stream: StreamingClientReceiver) -> Self {
-        Self { id, stream }
+    fn new(id: Id, stream: StreamingClientReceiver, client: StreamingClient) -> Self {
+        Self { id, stream, client }
     }
 
     pub fn id(&self) -> &Id {
@@ -62,6 +63,17 @@ impl SubscriptionStream {
             None => Err(StreamError::connection_closed(None::<StreamError>)),
             Some(msg) => Ok(msg),
         }
+    }
+}
+
+impl Drop for SubscriptionStream {
+    fn drop(&mut self) {
+        let mut client = self.client.clone();
+        let id = self.id.clone();
+        self.stream.close();
+        tokio::task::spawn(async move {
+            client.send_unsubscribe(&id).await.ok();
+        });
     }
 }
 
@@ -147,6 +159,17 @@ impl StreamingClient {
         self.send_subscription(request).await
     }
 
+    pub async fn send_unsubscribe(&mut self, id: &Id) -> StreamResult<()> {
+        debug!("StreamingClient sending unsubscribe for: {:?}", id);
+        self
+            .client
+            .write()
+            .await
+            .send_method_request(StreamMethodRequest::Unsubscribe, Some(id.clone()))
+            .await?;
+        Ok(())
+    }
+
     pub async fn send_subscription(
         &mut self,
         request: StreamMethodRequest,
@@ -187,6 +210,10 @@ impl StreamingClient {
         Ok(subscription_stream)
     }
 
+    pub async fn subscription_count(&self) -> usize {
+        self.subscriptions.read().await.len()
+    }
+
     /// Returning an actual `Err` from here signals some kind of connection problem
     async fn handle_next_message(&mut self) -> StreamResult<()> {
         let msg = self.stream.write().await.recv().await;
@@ -215,15 +242,29 @@ impl StreamingClient {
                 return Ok(());
             }
         };
+
+        // If this is an unsubscription confirmation, drop the subscription
+        let msg_is_unsubscribe = msg.result.as_ref().map_or(false, |v| v.get("unsubscribe").is_some());
+        if msg_is_unsubscribe {
+            self.clear_subscription(&id).await;
+        }
+
         // Send the message to the respective channel
         let id = id.clone();
-        match self.subscriptions.read().await.get(&id) {
+        let subscriptions = self.subscriptions.read().await;
+        match subscriptions.get(&id) {
             // If we could not send the subscription, or the channel is closed, make sure to clean up the subscription
             Some(sender) => match sender.sender.send(Ok(msg.clone())).await {
                 Err(e) => {
+                    // This happens if the subscription was closed
                     warn!(error=?&e, "StreamingClient could not forward message: {:?}", &msg);
+                    // If this is not an unsubscribe message, send one
+                    drop(subscriptions);
                     self.clear_subscription(&id).await;
-                    Err(StreamError::connection_closed(Some(e)))
+                    if !msg_is_unsubscribe {
+                        self.send_unsubscribe(&id).await.ok();
+                    }
+                    Ok(())
                 }
                 Ok(_) => {
                     debug!("StreamingClient forwarded message: {:?}", &msg);
@@ -232,10 +273,16 @@ impl StreamingClient {
             },
             // No such subscription exists
             None => {
-                warn!(
-                    "StreamingClient got message without matching subscription: {:?}",
+                // If this is an unsubscribe confirmation, this is OK
+                if !msg_is_unsubscribe {
+                    warn!(
+                    "StreamingClient got message without subscription: {:?}",
                     &msg
                 );
+                    drop(subscriptions);
+                    self.clear_subscription(&id).await;
+                    self.send_unsubscribe(&id).await.ok();
+                }
                 Ok(())
             }
         }
@@ -262,14 +309,14 @@ impl StreamingClient {
         tokio::task::spawn(async move { while clone.handle_next_message().await.is_ok() {} });
     }
 
-    async fn clear_subscription(&self, id: &Id) {
+    async fn clear_subscription(&self, id: &Id) -> bool {
         debug!("StreamingClient clearing subscription: {:?}", &id);
-        self.subscriptions.write().await.remove(id);
+        self.subscriptions.write().await.remove(id).is_some()
     }
 
     async fn get_and_register_id(&self) -> StreamResult<SubscriptionStream> {
         let id = self.client.read().await.get_next_id();
         let receiver = self.register_subscription(id.clone()).await?;
-        Ok(SubscriptionStream::new(id, receiver))
+        Ok(SubscriptionStream::new(id, receiver, self.clone()))
     }
 }

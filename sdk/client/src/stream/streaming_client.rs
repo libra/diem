@@ -72,7 +72,9 @@ impl Drop for SubscriptionStream {
         let id = self.id.clone();
         self.stream.close();
         tokio::task::spawn(async move {
-            client.send_unsubscribe(&id).await.ok();
+            client.clear_subscription(&id).await;
+            // If we can't send a message, connection is closed and we're going down
+            let _ = client.send_unsubscribe(&id).await;
         });
     }
 }
@@ -159,7 +161,7 @@ impl StreamingClient {
         self.send_subscription(request).await
     }
 
-    pub async fn send_unsubscribe(&mut self, id: &Id) -> StreamResult<()> {
+    pub(crate) async fn send_unsubscribe(&mut self, id: &Id) -> StreamResult<()> {
         debug!("StreamingClient sending unsubscribe for: {:?}", id);
         self
             .client
@@ -243,11 +245,8 @@ impl StreamingClient {
             }
         };
 
-        // If this is an unsubscription confirmation, drop the subscription
+        // is this is an unsubscription confirmation
         let msg_is_unsubscribe = msg.result.as_ref().map_or(false, |v| v.get("unsubscribe").is_some());
-        if msg_is_unsubscribe {
-            self.clear_subscription(&id).await;
-        }
 
         // Send the message to the respective channel
         let id = id.clone();
@@ -260,9 +259,8 @@ impl StreamingClient {
                     warn!(error=?&e, "StreamingClient could not forward message: {:?}", &msg);
                     // If this is not an unsubscribe message, send one
                     drop(subscriptions);
-                    self.clear_subscription(&id).await;
                     if !msg_is_unsubscribe {
-                        self.send_unsubscribe(&id).await.ok();
+                        let _ = self.send_unsubscribe(&id).await;
                     }
                     Ok(())
                 }
@@ -280,8 +278,7 @@ impl StreamingClient {
                     &msg
                 );
                     drop(subscriptions);
-                    self.clear_subscription(&id).await;
-                    self.send_unsubscribe(&id).await.ok();
+                    let _ = self.send_unsubscribe(&id).await;
                 }
                 Ok(())
             }

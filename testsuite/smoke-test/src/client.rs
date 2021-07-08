@@ -111,28 +111,16 @@ fn test_get_events_via_websocket_stream() {
                 StreamJsonRpcResponseView::Event(_) => {}
                 _ => panic!("Expected 'Event', but got: {:?}", response_view),
             }
-
-            rt.block_on(timeout(
-                ms_500,
-                s_client.send_unsubscribe(subscription_stream.id()),
-            ))
-            .unwrap_or_else(|e| panic!("Timeout unsubscribing from {}: {}", &currency.code, e))
-            .unwrap_or_else(|e| panic!("Currency '{}' unsubscribe err: {}", &currency.code, e));
-
-            rt.block_on(sleep(ms_500));
-
-            count_after = rt
-                .block_on(timeout(ms_500, s_client.subscription_count()))
-                .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
-        } else {
-            drop(subscription_stream);
-
-            rt.block_on(sleep(ms_500));
-
-            count_after = rt
-                .block_on(timeout(ms_500, s_client.subscription_count()))
-                .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
         }
+
+        drop(subscription_stream);
+
+        rt.block_on(sleep(ms_500));
+
+        count_after = rt
+            .block_on(timeout(ms_500, s_client.subscription_count()))
+            .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
+
         assert_eq!(
             count_after, 0,
             "No subscriptions should be running at the end"

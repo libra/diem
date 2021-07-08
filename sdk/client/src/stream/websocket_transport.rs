@@ -130,7 +130,7 @@ impl WebsocketTransport {
                                 {
                                     Ok(msg) => msg,
                                     Err(e) => {
-                                        sender.send(Err(e)).await.ok();
+                                        let _ = sender.send(Err(e)).await;
                                         continue;
                                     }
                                 };
@@ -141,10 +141,9 @@ impl WebsocketTransport {
                             }
                         }
                         Err(e) => {
-                            sender
+                            let _ = sender
                                 .send(Err(StreamError::from_tungstenite_error(e)))
-                                .await
-                                .ok();
+                                .await;
                             continue;
                         }
                     },

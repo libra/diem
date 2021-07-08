@@ -131,10 +131,10 @@ impl ClientConnection {
                     Some(id2),
                     Some(serde_json::to_value(UnsubscribeResult::ok()).unwrap()),
                 );
-                sender
+                // If we can't send a message, connection is closed and we're going down
+                let _ = sender
                     .send(Ok(serde_json::to_string(&response).unwrap()))
-                    .await
-                    .ok()
+                    .await;
             });
 
             task.0.abort();
@@ -303,7 +303,15 @@ mod tests {
     async fn test_client_connection_success() {
         let (mock_db, client_connection, mut receiver) = create_client_connection();
 
-        let request = serde_json::json!({"id": "client-generated-id", "method": "subscribe_to_transactions", "params": {"starting_version": 0}, "jsonrpc": "2.0"}).to_string();
+        let request = serde_json::json!({
+          "id": "client-generated-id",
+          "method": "subscribe_to_transactions",
+          "params": {
+            "starting_version": 0
+          },
+          "jsonrpc": "2.0"
+        })
+        .to_string();
         client_connection
             .received_message(Arc::new(mock_db.clone()), request)
             .await;
@@ -312,7 +320,15 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let expected = serde_json::json!({"jsonrpc": "2.0", "id": "client-generated-id", "result": {"status": "OK", "transaction_version": mock_db.version}}).to_string();
+        let expected = serde_json::json!({
+          "jsonrpc": "2.0",
+          "id": "client-generated-id",
+          "result": {
+            "status": "OK",
+            "transaction_version": mock_db.version
+          }
+        })
+        .to_string();
         assert_eq!(result, expected);
 
         let result = timeout(50, receiver.recv(), "message 1")
@@ -335,7 +351,15 @@ mod tests {
     async fn test_client_connection_unsubscribe() {
         let (mock_db, client_connection, mut receiver) = create_client_connection();
 
-        let request = serde_json::json!({"id": "client-generated-id", "method": "subscribe_to_transactions", "params": {"starting_version": 0}, "jsonrpc": "2.0"}).to_string();
+        let request = serde_json::json!({
+          "id": "client-generated-id",
+          "method": "subscribe_to_transactions",
+          "params": {
+            "starting_version": 0
+          },
+          "jsonrpc": "2.0"
+        })
+        .to_string();
         client_connection
             .received_message(Arc::new(mock_db.clone()), request)
             .await;
@@ -344,10 +368,25 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let expected = serde_json::json!({"jsonrpc": "2.0", "id": "client-generated-id", "result": {"status": "OK", "transaction_version": mock_db.version}}).to_string();
+        let expected = serde_json::json!({
+          "jsonrpc": "2.0",
+          "id": "client-generated-id",
+          "result": {
+            "status": "OK",
+            "transaction_version": mock_db.version
+          }
+        })
+        .to_string();
         assert_eq!(result, expected);
 
-        let request = serde_json::json!({"id": "client-generated-id", "method": "unsubscribe", "params": {}, "jsonrpc": "2.0"}).to_string();
+        let request = serde_json::json!({
+          "id": "client-generated-id",
+          "method": "unsubscribe",
+          "params": {},
+          "jsonrpc": "2.0"
+        })
+        .to_string();
+
         client_connection
             .received_message(Arc::new(mock_db.clone()), request)
             .await;

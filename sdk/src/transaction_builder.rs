@@ -257,6 +257,17 @@ impl TransactionFactory {
         }
     }
 
+    pub fn preburn(&self, currency: Currency, amount: u64) -> TransactionBuilder {
+        if self.is_script_function_enabled() {
+            self.payload(stdlib::encode_preburn_script_function(
+                currency.type_tag(),
+                amount,
+            ))
+        } else {
+            self.script(stdlib::encode_preburn_script(currency.type_tag(), amount))
+        }
+    }
+
     pub fn create_child_vasp_account(
         &self,
         coin_type: Currency,
@@ -440,6 +451,30 @@ impl TransactionFactory {
         }
     }
 
+    pub fn update_exchange_rate(
+        &self,
+        currency: Currency,
+        sliding_nonce: u64,
+        exchange_rate_numerator: u64,
+        exchange_rate_denominator: u64,
+    ) -> TransactionBuilder {
+        if self.is_script_function_enabled() {
+            self.payload(stdlib::encode_update_exchange_rate_script_function(
+                currency.type_tag(),
+                sliding_nonce,
+                exchange_rate_numerator,
+                exchange_rate_denominator,
+            ))
+        } else {
+            self.script(stdlib::encode_update_exchange_rate_script(
+                currency.type_tag(),
+                sliding_nonce,
+                exchange_rate_numerator,
+                exchange_rate_denominator,
+            ))
+        }
+    }
+
     pub fn remove_validator_and_reconfigure(
         &self,
         sliding_nonce: u64,
@@ -483,7 +518,7 @@ impl TransactionFactory {
     // Internal Helpers
     //
 
-    fn script(&self, script: Script) -> TransactionBuilder {
+    pub fn script(&self, script: Script) -> TransactionBuilder {
         self.payload(TransactionPayload::Script(script))
     }
 

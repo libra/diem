@@ -79,6 +79,8 @@ impl<S: tr::Subscriber> Layer<S> for TracingToDiemLoggerLayer {
         // However I couldn't figure out a way to convert it to `fmt::Arguments` due to lifetime issues.
         // Therefore I'm omitting message argument to `Event::dispatch`.
         // This should generally be fine since the message will be translated as a normal record.
-        dl::Event::dispatch(&metadata, None, &[&EventKeyValueAdapter { event }]);
+        if dl::logger::enabled(&metadata) {
+            dl::Event::dispatch(&metadata, None, &[&EventKeyValueAdapter { event }]);
+        }
     }
 }

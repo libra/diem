@@ -4,7 +4,7 @@
 use super::Test;
 use crate::{CoreContext, Result};
 use diem_sdk::{
-    client::{BlockingClient, FaucetClient, MethodRequest},
+    client::{BlockingClient, FaucetClient},
     move_types::account_address::AccountAddress,
     transaction_builder::{Currency, TransactionFactory},
     types::{chain_id::ChainId, transaction::authenticator::AuthenticationKey, LocalAccount},
@@ -33,8 +33,16 @@ impl<'t> PublicUsageContext<'t> {
         BlockingClient::new(&self.public_info.json_rpc_url)
     }
 
+    pub fn url(&self) -> &str {
+        &self.public_info.json_rpc_url
+    }
+
     pub fn core(&self) -> &CoreContext {
         &self.core
+    }
+
+    pub fn rng(&mut self) -> &mut ::rand::rngs::StdRng {
+        self.core.rng()
     }
 
     pub fn random_account(&mut self) -> LocalAccount {
@@ -45,17 +53,24 @@ impl<'t> PublicUsageContext<'t> {
         self.public_info.chain_id
     }
 
-    pub fn tx_factory(&self) -> TransactionFactory {
+    pub fn transaction_factory(&self) -> TransactionFactory {
         TransactionFactory::new(self.chain_id())
     }
 
-    pub fn fund(
-        &mut self,
-        currency: Currency,
-        auth_key: AuthenticationKey,
-        amount: u64,
-    ) -> Result<()> {
-        self.public_info.coffer.fund(currency, auth_key, amount)
+    pub fn fund(&mut self, address: AccountAddress, amount: u64) -> Result<()> {
+        self.public_info.coffer.fund(Currency::XUS, address, amount)
+    }
+
+    pub fn create_parent_vasp_account(&mut self, auth_key: AuthenticationKey) -> Result<()> {
+        self.public_info
+            .coffer
+            .create_parent_vasp_account(Currency::XUS, auth_key)
+    }
+
+    pub fn create_designated_dealer_account(&mut self, auth_key: AuthenticationKey) -> Result<()> {
+        self.public_info
+            .coffer
+            .create_designated_dealer_account(Currency::XUS, auth_key)
     }
 
     pub fn transfer_coins(
@@ -66,8 +81,10 @@ impl<'t> PublicUsageContext<'t> {
         amount: u64,
     ) -> Result<()> {
         let client = self.client();
-        let tx = sender
-            .sign_with_transaction_builder(self.tx_factory().peer_to_peer(currency, payee, amount));
+        let tx = sender.sign_with_transaction_builder(
+            self.transaction_factory()
+                .peer_to_peer(currency, payee, amount),
+        );
         client.submit(&tx)?;
         client.wait_for_signed_transaction(&tx, None, None)?;
 
@@ -86,21 +103,51 @@ pub enum Coffer<'t> {
 }
 
 pub trait Fund {
-    fn fund(&mut self, currency: Currency, auth_key: AuthenticationKey, amount: u64) -> Result<()>;
+    fn fund(&mut self, currency: Currency, address: AccountAddress, amount: u64) -> Result<()>;
+    fn create_parent_vasp_account(
+        &mut self,
+        currency: Currency,
+        auth_key: AuthenticationKey,
+    ) -> Result<()>;
+    fn create_designated_dealer_account(
+        &mut self,
+        currency: Currency,
+        auth_key: AuthenticationKey,
+    ) -> Result<()>;
 }
 
 impl Fund for Coffer<'_> {
-    fn fund(&mut self, currency: Currency, auth_key: AuthenticationKey, amount: u64) -> Result<()> {
+    fn fund(&mut self, currency: Currency, address: AccountAddress, amount: u64) -> Result<()> {
         match self {
-            Coffer::Faucet(faucet) => faucet
-                .fund(currency.as_str(), auth_key, amount)
-                .map_err(Into::into),
+            Coffer::Faucet(_) => todo!(),
+            Coffer::TreasuryCompliance {
+                transaction_factory,
+                json_rpc_client,
+                treasury_compliance_account: _,
+                designated_dealer_account,
+            } => {
+                let fund_account_txn = designated_dealer_account.sign_with_transaction_builder(
+                    transaction_factory.peer_to_peer(currency, address, amount),
+                );
+                json_rpc_client.submit(&fund_account_txn)?;
+                json_rpc_client.wait_for_signed_transaction(&fund_account_txn, None, None)?;
+                Ok(())
+            }
+        }
+    }
 
+    fn create_parent_vasp_account(
+        &mut self,
+        currency: Currency,
+        auth_key: AuthenticationKey,
+    ) -> Result<()> {
+        match self {
+            Coffer::Faucet(_) => todo!(),
             Coffer::TreasuryCompliance {
                 transaction_factory,
                 json_rpc_client,
                 treasury_compliance_account,
-                designated_dealer_account,
+                ..
             } => {
                 let create_account_txn = treasury_compliance_account.sign_with_transaction_builder(
                     transaction_factory.create_parent_vasp_account(
@@ -111,18 +158,37 @@ impl Fund for Coffer<'_> {
                         false,
                     ),
                 );
-                let fund_account_txn = designated_dealer_account.sign_with_transaction_builder(
-                    transaction_factory.peer_to_peer(currency, auth_key.derived_address(), amount),
-                );
-
-                let batch = vec![
-                    MethodRequest::submit(&create_account_txn)?,
-                    MethodRequest::submit(&fund_account_txn)?,
-                ];
-                json_rpc_client.batch(batch)?;
+                json_rpc_client.submit(&create_account_txn)?;
                 json_rpc_client.wait_for_signed_transaction(&create_account_txn, None, None)?;
-                json_rpc_client.wait_for_signed_transaction(&fund_account_txn, None, None)?;
+                Ok(())
+            }
+        }
+    }
 
+    fn create_designated_dealer_account(
+        &mut self,
+        currency: Currency,
+        auth_key: AuthenticationKey,
+    ) -> Result<()> {
+        match self {
+            Coffer::Faucet(_) => todo!(),
+            Coffer::TreasuryCompliance {
+                transaction_factory,
+                json_rpc_client,
+                treasury_compliance_account,
+                ..
+            } => {
+                let create_account_txn = treasury_compliance_account.sign_with_transaction_builder(
+                    transaction_factory.create_designated_dealer(
+                        currency,
+                        0, // sliding_nonce
+                        auth_key,
+                        &format!("No. {} DD", treasury_compliance_account.sequence_number()),
+                        false, // add all currencies
+                    ),
+                );
+                json_rpc_client.submit(&create_account_txn)?;
+                json_rpc_client.wait_for_signed_transaction(&create_account_txn, None, None)?;
                 Ok(())
             }
         }

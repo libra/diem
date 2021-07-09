@@ -1,126 +1,114 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::test_utils::setup_swarm_and_client_proxy;
-use diem_crypto::{ed25519::Ed25519PrivateKey, PrivateKey, SigningKey, Uniform};
-use diem_sdk::client::views::TransactionDataView;
-use diem_types::{account_config::XUS_NAME, transaction::authenticator::AuthenticationKey};
+use diem_sdk::{
+    client::{views::TransactionDataView, SignedTransaction},
+    crypto::{ed25519::Ed25519PrivateKey, PrivateKey, SigningKey, Uniform},
+    transaction_builder::Currency,
+    types::{account_config::XUS_NAME, transaction::authenticator::AuthenticationKey},
+};
+use forge::{PublicUsageContext, PublicUsageTest, Result, Test};
 
-#[test]
-fn test_external_transaction_signer() {
-    let (_env, mut client) = setup_swarm_and_client_proxy(1, 0);
+pub struct ExternalTransactionSigner;
 
-    // generate key pair
-    let private_key = Ed25519PrivateKey::generate_for_testing();
-    let public_key = private_key.public_key();
+impl Test for ExternalTransactionSigner {
+    fn name(&self) -> &'static str {
+        "smoke-test::external-transaction-signer"
+    }
+}
 
-    // create transfer parameters
-    let sender_auth_key = AuthenticationKey::ed25519(&public_key);
-    let sender_address = sender_auth_key.derived_address();
-    let (receiver_address, receiver_auth_key) = client
-        .get_account_address_from_parameter(
-            "1bfb3b36384dabd29e38b4a0eafd9797b75141bb007cea7943f8a4714d3d784a",
-        )
-        .unwrap();
-    let amount = 1_000_000;
-    let test_gas_unit_price = 1;
-    let test_max_gas_amount = 1_000_000;
+impl PublicUsageTest for ExternalTransactionSigner {
+    fn run<'t>(&self, ctx: &mut PublicUsageContext<'t>) -> Result<()> {
+        let client = ctx.client();
 
-    // mint to the sender address
-    client
-        .mint_coins(
-            &["mintb", &format!("{}", sender_auth_key), "10", "XUS"],
-            true,
-        )
-        .unwrap();
-    // mint to the recipient address
-    client
-        .mint_coins(
-            &[
-                "mintb",
-                &format!("{}", receiver_auth_key.unwrap()),
-                "1",
-                "XUS",
-            ],
-            true,
-        )
-        .unwrap();
+        // generate key pair
+        let private_key = Ed25519PrivateKey::generate(ctx.rng());
+        let public_key = private_key.public_key();
 
-    // prepare transfer transaction
-    let test_sequence_number = client
-        .get_sequence_number(&["sequence", &format!("{}", sender_address)])
-        .unwrap();
+        // create transfer parameters
+        let sender_auth_key = AuthenticationKey::ed25519(&public_key);
+        let sender_address = sender_auth_key.derived_address();
+        ctx.create_parent_vasp_account(sender_auth_key)?;
+        ctx.fund(sender_address, 10_000_000)?;
 
-    let currency_code = XUS_NAME;
+        let receiver = ctx.random_account();
+        ctx.create_parent_vasp_account(receiver.authentication_key())?;
+        ctx.fund(receiver.address(), 1_000_000)?;
 
-    let unsigned_txn = client
-        .prepare_transfer_coins(
-            sender_address,
-            test_sequence_number,
-            receiver_address,
-            amount,
-            currency_code.to_owned(),
-            Some(test_gas_unit_price),
-            Some(test_max_gas_amount),
-            Some(currency_code.to_owned()),
-        )
-        .unwrap();
+        let amount = 1_000_000;
+        let test_gas_unit_price = 1;
+        let test_max_gas_amount = 1_000_000;
 
-    assert_eq!(unsigned_txn.sender(), sender_address);
+        // prepare transfer transaction
+        let test_sequence_number = client
+            .get_account(sender_address)?
+            .into_inner()
+            .unwrap()
+            .sequence_number;
 
-    // sign the transaction with the private key
-    let signature = private_key.sign(&unsigned_txn);
+        let currency_code = XUS_NAME;
 
-    // submit the transaction
-    let submit_txn_result = client.submit_signed_transaction(unsigned_txn, public_key, signature);
+        let unsigned_txn = ctx
+            .transaction_factory()
+            .peer_to_peer(Currency::XUS, receiver.address(), amount)
+            .sender(sender_address)
+            .sequence_number(test_sequence_number)
+            .max_gas_amount(test_max_gas_amount)
+            .gas_unit_price(test_gas_unit_price)
+            .build();
 
-    assert!(submit_txn_result.is_ok());
+        assert_eq!(unsigned_txn.sender(), sender_address);
 
-    // query the transaction and check it contains the same values as requested
-    let txn = client
-        .get_committed_txn_by_acc_seq(&[
-            "txn_acc_seq",
-            &format!("{}", sender_address),
-            &test_sequence_number.to_string(),
-            "false",
-        ])
-        .unwrap()
-        .unwrap();
+        // sign the transaction with the private key
+        let signature = private_key.sign(&unsigned_txn);
 
-    match txn.transaction {
-        TransactionDataView::UserTransaction {
-            sender,
-            sequence_number,
-            max_gas_amount,
-            gas_unit_price,
-            gas_currency,
-            script,
-            ..
-        } => {
-            assert_eq!(sender, sender_address);
-            assert_eq!(sequence_number, test_sequence_number);
-            assert_eq!(gas_unit_price, test_gas_unit_price);
-            assert_eq!(gas_currency, currency_code.to_string());
-            assert_eq!(max_gas_amount, test_max_gas_amount);
+        // submit the transaction
+        let txn = SignedTransaction::new(unsigned_txn, public_key, signature);
+        client.submit(&txn)?;
+        client.wait_for_signed_transaction(&txn, None, None)?;
 
-            assert_eq!(script.r#type, "peer_to_peer_with_metadata");
-            assert_eq!(script.type_arguments.unwrap(), vec!["XUS"]);
-            assert_eq!(
-                script.arguments.unwrap(),
-                vec![
-                    format!("{{ADDRESS: {:?}}}", &receiver_address),
-                    format!("{{U64: {}}}", amount),
-                    "{U8Vector: 0x}".to_string(),
-                    "{U8Vector: 0x}".to_string()
-                ]
-            );
-            // legacy fields
-            assert_eq!(script.receiver.unwrap(), receiver_address);
-            assert_eq!(script.amount.unwrap(), amount);
-            assert_eq!(script.currency.unwrap(), currency_code.to_string());
-            assert!(script.metadata.unwrap().inner().is_empty());
-            assert!(script.metadata_signature.unwrap().inner().is_empty());
+        // query the transaction and check it contains the same values as requested
+        let txn = client
+            .get_account_transaction(sender_address, test_sequence_number, false)?
+            .into_inner()
+            .unwrap();
+
+        match txn.transaction {
+            TransactionDataView::UserTransaction {
+                sender,
+                sequence_number,
+                max_gas_amount,
+                gas_unit_price,
+                gas_currency,
+                script,
+                ..
+            } => {
+                assert_eq!(sender, sender_address);
+                assert_eq!(sequence_number, test_sequence_number);
+                assert_eq!(gas_unit_price, test_gas_unit_price);
+                assert_eq!(gas_currency, currency_code.to_string());
+                assert_eq!(max_gas_amount, test_max_gas_amount);
+
+                assert_eq!(script.r#type, "peer_to_peer_with_metadata");
+                assert_eq!(script.type_arguments.unwrap(), vec!["XUS"]);
+                assert_eq!(
+                    script.arguments.unwrap(),
+                    vec![
+                        format!("{{ADDRESS: {:?}}}", receiver.address()),
+                        format!("{{U64: {}}}", amount),
+                        "{U8Vector: 0x}".to_string(),
+                        "{U8Vector: 0x}".to_string()
+                    ]
+                );
+                // legacy fields
+                assert_eq!(script.receiver.unwrap(), receiver.address());
+                assert_eq!(script.amount.unwrap(), amount);
+                assert_eq!(script.currency.unwrap(), currency_code.to_string());
+                assert!(script.metadata.unwrap().inner().is_empty());
+                assert!(script.metadata_signature.unwrap().inner().is_empty());
+            }
+            _ => panic!("Query should get user transaction"),
         }
-        _ => panic!("Query should get user transaction"),
+        Ok(())
     }
 }

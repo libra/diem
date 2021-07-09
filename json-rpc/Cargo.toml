@@ -74,8 +74,13 @@ executor-types = { path = "../execution/executor-types" }
 scratchpad = { path = "../storage/scratchpad" }
 move-vm-types = { path = "../language/move-vm/types" }
 diem-transaction-builder = { path = "../sdk/transaction-builder" }
-diem-node = { path = "../diem-node" }
+diem-sdk = { path = "../sdk" }
+forge = { path = "../testsuite/forge" }
 
 [features]
 fuzzing = ["proptest", "diem-client", "diem-mempool/fuzzing", "diemdb/fuzzing", "diem-proptest-helpers", "diem-temppath", "executor", "executor-types", "move-vm-types", "reqwest", "scratchpad", "vm-genesis"]
 failpoints = ["fail/failpoints"]
+
+[[test]]
+name = "jsonrpc-integration-tests"
+harness = false

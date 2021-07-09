@@ -1,82 +1,82 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    smoke_test_environment::SmokeTestEnvironment,
-    test_utils::{diem_swarm_utils::get_json_rpc_url, setup_swarm_and_client_proxy},
-};
-use cli::client_proxy::{AddressAndIndex, ClientProxy};
 use diem_sdk::{
     client::{
-        Client, InMemoryStorage, MethodRequest, MethodResponse, Response, Result, VerifyingClient,
+        BlockingClient, Client, InMemoryStorage, MethodRequest, MethodResponse, Response, Result,
+        VerifyingClient,
     },
-    transaction_builder::{Currency, TransactionFactory},
-    types::LocalAccount,
-};
-use diem_types::{
-    account_address::AccountAddress,
-    account_config::constants::addresses::{
-        diem_root_address, testnet_dd_account_address, treasury_compliance_account_address,
-        validator_set_address,
+    transaction_builder::Currency,
+    types::{
+        account_address::AccountAddress,
+        account_config::constants::addresses::{
+            diem_root_address, testnet_dd_account_address, treasury_compliance_account_address,
+            validator_set_address,
+        },
+        epoch_change::EpochChangeProof,
+        event::{EventHandle, EventKey},
+        transaction::Version,
+        trusted_state::TrustedState,
+        waypoint::Waypoint,
+        LocalAccount,
     },
-    event::{EventHandle, EventKey},
-    transaction::Version,
-    trusted_state::TrustedState,
 };
+use forge::{PublicUsageContext, PublicUsageTest, Result as ForgeResult, Test};
 use proptest::{collection::vec, prelude::*, sample::select};
 use std::cmp::max;
 use tokio::runtime::Builder;
 
+//TODO expose genesis transaction and genesis waypoint from Forge
+fn verifying_client(json_rpc_endpoint: &str) -> ForgeResult<VerifyingClient<InMemoryStorage>> {
+    let client = BlockingClient::new(json_rpc_endpoint);
+    let epoch_change_proof: EpochChangeProof = bcs::from_bytes(
+        client
+            .get_state_proof(0)?
+            .into_inner()
+            .epoch_change_proof
+            .inner(),
+    )?;
+    let waypoint = Waypoint::new_epoch_boundary(
+        epoch_change_proof
+            .ledger_info_with_sigs
+            .last()
+            .unwrap()
+            .ledger_info(),
+    )?;
+
+    let trusted_state = TrustedState::from_epoch_waypoint(waypoint);
+    let storage = InMemoryStorage::new();
+    Ok(VerifyingClient::new_with_state(
+        Client::new(json_rpc_endpoint),
+        trusted_state,
+        storage,
+    ))
+}
+
+fn fund_new_account(ctx: &mut PublicUsageContext<'_>, amount: u64) -> ForgeResult<LocalAccount> {
+    let account = ctx.random_account();
+    ctx.create_parent_vasp_account(account.authentication_key())?;
+    ctx.fund(account.address(), amount)?;
+
+    Ok(account)
+}
+
 struct Environment {
-    _env: SmokeTestEnvironment,
     pub max_batch_size: usize,
-    pub client_proxy: ClientProxy,
     pub client: Client,
     pub verifying_client: VerifyingClient<InMemoryStorage>,
 }
 
 impl Environment {
-    fn new() -> Self {
-        let (env, client_proxy) = setup_swarm_and_client_proxy(1, 0);
-
-        let max_batch_size = env
-            .validator_swarm
-            .get_node(0)
-            .unwrap()
-            .config()
-            .json_rpc
-            .batch_size_limit as usize;
-
-        let url = get_json_rpc_url(&env.validator_swarm, 0);
+    fn new(url: &str) -> Self {
         let client = Client::new(url);
-
-        let genesis_waypoint = env.validator_swarm.config.waypoint;
-        let trusted_state = TrustedState::from_epoch_waypoint(genesis_waypoint);
-        let storage = InMemoryStorage::new();
-        let verifying_client =
-            VerifyingClient::new_with_state(client.clone(), trusted_state, storage);
+        let verifying_client = verifying_client(url).unwrap();
 
         Self {
-            _env: env,
-            max_batch_size,
-            client_proxy,
+            max_batch_size: 20,
             client,
             verifying_client,
         }
-    }
-
-    fn transaction_factory(&self) -> TransactionFactory {
-        TransactionFactory::new(self.client_proxy.chain_id)
-    }
-
-    fn fund_new_account(&mut self, amount: u64) -> AddressAndIndex {
-        let account = self.client_proxy.create_next_account(false).unwrap();
-        let idx = format!("{}", account.index);
-        let amount = format!("{}", amount);
-        self.client_proxy
-            .mint_coins(&["mintb", &idx, &amount, "XUS"], true)
-            .unwrap();
-        account
     }
 
     fn latest_observed_version(&self) -> Version {
@@ -317,117 +317,122 @@ fn arb_batch(
     )
 }
 
-#[test]
-fn test_client_equivalence() {
-    let rt = Builder::new_current_thread().enable_all().build().unwrap();
-    let mut env = Environment::new();
+pub struct VerifyingClientEquivalence;
 
-    // Accounts we can query from
-    let accounts = vec![
-        // Some standard diem accounts
-        diem_root_address(),
-        validator_set_address(),
-        treasury_compliance_account_address(),
-        testnet_dd_account_address(),
-        // Fund some new accounts
-        env.fund_new_account(1000).address,
-        env.fund_new_account(2000).address,
-        env.fund_new_account(3000).address,
-        // Some random, likely non-existent accounts
-        AccountAddress::ZERO,
-        AccountAddress::random(),
-        AccountAddress::random(),
-    ];
-
-    // Scan the accounts for some event handles we can query from
-    let event_handles = rt.block_on(env.scan_event_handles(&accounts));
-
-    // Sync the verifying client
-    rt.block_on(env.verifying_client.sync()).unwrap();
-
-    // Generate random requests and ensure that both verifying and non-verifying
-    // clients handle each request identically.
-    proptest!(|(request in arb_request(&accounts, &event_handles, env.latest_observed_version()))| {
-        let (recv_nv, recv_v) = rt.block_on(env.request(request));
-        assert_responses_equal(recv_nv, recv_v);
-    });
-
-    // Do the same but with random request batches instead of single requests.
-    proptest!(|(batch in arb_batch(env.max_batch_size, &accounts, &event_handles, env.latest_observed_version()))| {
-        let (recv_nv, recv_v) = rt.block_on(env.batch(batch));
-        assert_batches_equal(recv_nv, recv_v);
-    });
+impl Test for VerifyingClientEquivalence {
+    fn name(&self) -> &'static str {
+        "smoke-test::verifying-client-equivalence"
+    }
 }
 
-#[test]
-fn test_submit() {
-    let rt = Builder::new_current_thread().enable_all().build().unwrap();
-    let mut env = Environment::new();
+impl PublicUsageTest for VerifyingClientEquivalence {
+    fn run<'t>(&self, ctx: &mut PublicUsageContext<'t>) -> ForgeResult<()> {
+        let rt = Builder::new_current_thread().enable_all().build().unwrap();
+        let env = Environment::new(ctx.url());
 
-    let start_amount = 1_000_000;
-    let transfer_amount = 100;
-    let currency = Currency::XUS;
+        // Accounts we can query from
+        let accounts = vec![
+            // Some standard diem accounts
+            diem_root_address(),
+            validator_set_address(),
+            treasury_compliance_account_address(),
+            testnet_dd_account_address(),
+            // Fund some new accounts
+            fund_new_account(ctx, 1000)?.address(),
+            fund_new_account(ctx, 2000)?.address(),
+            fund_new_account(ctx, 3000)?.address(),
+            // Some random, likely non-existent accounts
+            AccountAddress::ZERO,
+            AccountAddress::random(),
+            AccountAddress::random(),
+        ];
 
-    let idx_1 = env.fund_new_account(start_amount / 1_000_000).index;
-    let idx_2 = env.fund_new_account(start_amount / 1_000_000).index;
+        // Scan the accounts for some event handles we can query from
+        let event_handles = rt.block_on(env.scan_event_handles(&accounts));
 
-    let account_1 = env.client_proxy.get_account(idx_1).unwrap();
-    let account_2 = env.client_proxy.get_account(idx_2).unwrap();
+        // Sync the verifying client
+        rt.block_on(env.verifying_client.sync()).unwrap();
 
-    let mut account_1 = LocalAccount::new(
-        account_1.address,
-        env.client_proxy
-            .wallet
-            .get_private_key(&account_1.address)
-            .unwrap(),
-        account_1.sequence_number,
-    );
-    let account_2 = LocalAccount::new(
-        account_2.address,
-        env.client_proxy
-            .wallet
-            .get_private_key(&account_2.address)
-            .unwrap(),
-        account_2.sequence_number,
-    );
+        // Generate random requests and ensure that both verifying and non-verifying
+        // clients handle each request identically.
+        proptest!(|(request in arb_request(&accounts, &event_handles, env.latest_observed_version()))| {
+            let (recv_nv, recv_v) = rt.block_on(env.request(request));
+            assert_responses_equal(recv_nv, recv_v);
+        });
 
-    rt.block_on(env.verifying_client.sync()).unwrap();
+        // Do the same but with random request batches instead of single requests.
+        proptest!(|(batch in arb_batch(env.max_batch_size, &accounts, &event_handles, env.latest_observed_version()))| {
+            let (recv_nv, recv_v) = rt.block_on(env.batch(batch));
+            assert_batches_equal(recv_nv, recv_v);
+        });
 
-    let txn = account_1.sign_with_transaction_builder(env.transaction_factory().peer_to_peer(
-        currency,
-        account_2.address(),
-        transfer_amount,
-    ));
+        Ok(())
+    }
+}
 
-    rt.block_on(env.verifying_client.submit(&txn)).unwrap();
-    rt.block_on(
-        env.verifying_client
-            .wait_for_signed_transaction(&txn, None, None),
-    )
-    .unwrap();
+pub struct VerifyingSubmit;
 
-    let account_view_1 = rt
-        .block_on(env.verifying_client.get_account(account_1.address()))
-        .unwrap()
-        .into_inner()
-        .unwrap();
-    let balance_1 = account_view_1
-        .balances
-        .iter()
-        .find(|b| b.currency == currency)
-        .unwrap();
+impl Test for VerifyingSubmit {
+    fn name(&self) -> &'static str {
+        "smoke-test::verifying-submit"
+    }
+}
 
-    let account_view_2 = rt
-        .block_on(env.verifying_client.get_account(account_2.address()))
-        .unwrap()
-        .into_inner()
-        .unwrap();
-    let balance_2 = account_view_2
-        .balances
-        .iter()
-        .find(|b| b.currency == currency)
-        .unwrap();
+impl PublicUsageTest for VerifyingSubmit {
+    fn run<'t>(&self, ctx: &mut PublicUsageContext<'t>) -> ForgeResult<()> {
+        let rt = Builder::new_current_thread().enable_all().build()?;
 
-    assert_eq!(balance_1.amount, start_amount - transfer_amount);
-    assert_eq!(balance_2.amount, start_amount + transfer_amount);
+        let verifying_client = verifying_client(ctx.url())?;
+        let factory = ctx.transaction_factory();
+
+        let start_amount = 1_000_000;
+        let transfer_amount = 100;
+        let currency = Currency::XUS;
+
+        let mut account_1 = ctx.random_account();
+        ctx.create_parent_vasp_account(account_1.authentication_key())?;
+        ctx.fund(account_1.address(), start_amount)?;
+
+        let account_2 = ctx.random_account();
+        ctx.create_parent_vasp_account(account_2.authentication_key())?;
+        ctx.fund(account_2.address(), start_amount)?;
+
+        rt.block_on(verifying_client.sync()).unwrap();
+
+        let txn = account_1.sign_with_transaction_builder(factory.peer_to_peer(
+            currency,
+            account_2.address(),
+            transfer_amount,
+        ));
+
+        rt.block_on(verifying_client.submit(&txn)).unwrap();
+        rt.block_on(verifying_client.wait_for_signed_transaction(&txn, None, None))
+            .unwrap();
+
+        let account_view_1 = rt
+            .block_on(verifying_client.get_account(account_1.address()))
+            .unwrap()
+            .into_inner()
+            .unwrap();
+        let balance_1 = account_view_1
+            .balances
+            .iter()
+            .find(|b| b.currency == currency)
+            .unwrap();
+
+        let account_view_2 = rt
+            .block_on(verifying_client.get_account(account_2.address()))
+            .unwrap()
+            .into_inner()
+            .unwrap();
+        let balance_2 = account_view_2
+            .balances
+            .iter()
+            .find(|b| b.currency == currency)
+            .unwrap();
+
+        assert_eq!(balance_1.amount, start_amount - transfer_amount);
+        assert_eq!(balance_2.amount, start_amount + transfer_amount);
+        Ok(())
+    }
 }

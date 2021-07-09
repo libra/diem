@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use rand::SeedableRng;
-use std::fmt;
 
 /// Whether a test is expected to fail or not
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -15,7 +14,7 @@ pub enum ShouldFail {
 /// Represents a Test in Forge
 ///
 /// This is meant to be a super trait of the other test interfaces.
-pub trait Test: Send + Sync + fmt::Debug {
+pub trait Test: Send + Sync {
     /// Returns the name of the Test
     fn name(&self) -> &'static str;
 

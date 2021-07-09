@@ -9,6 +9,15 @@ license = "Apache-2.0"
 publish = false
 edition = "2018"
 
+[dependencies]
+bcs = "0.1.2"
+proptest = "1.0.0"
+tokio = { version = "1.3.0", features = ["full"] }
+
+diem-events-fetcher = { path = "../../language/diem-tools/diem-events-fetcher" }
+diem-sdk = { path = "../../sdk" }
+forge = { path = "../forge" }
+
 [dev-dependencies]
 anyhow = "1.0.38"
 base64 = "0.13.0"
@@ -16,20 +25,17 @@ hex = "0.4.3"
 once_cell = "1.7.2"
 num = "0.4.0"
 num-traits = "0.2.14"
-proptest = "1.0.0"
 rand = "0.8.3"
 regex = "1.4.3"
 rust_decimal = "1.10.3"
 rusty-fork = "0.3.0"
 serde_yaml = "0.8.17"
-tokio = { version = "1.3.0", features = ["full"] }
 
 backup-cli = { path = "../../storage/backup/backup-cli" }
 cli = { path = "../cli", features = ["fuzzing"]  }
 diem-framework-releases = { path = "../../language/diem-framework/releases" }
 debug-interface = { path = "../../common/debug-interface" }
 generate-key = { path = "../../config/generate-key" }
-bcs = "0.1.2"
 move-move-command-line-common = { path = "../../language/move-command-line-common", package = "move-command-line-common" }
 move-stdlib = { path = "../../language/move-stdlib" }
 diem-config = { path = "../../config" }
@@ -42,12 +48,10 @@ diem-key-manager = { path = "../../secure/key-manager" }
 diem-logger = { path = "../../common/logger" }
 diem-management = { path = "../../config/management", features = ["testing"] }
 diem-operational-tool = {path = "../../config/management/operational", features = ["testing"] }
-diem-sdk = { path = "../../sdk" }
 diem-secure-storage = { path = "../../secure/storage", features = ["testing"] }
 diem-smoke-test-attribute = { path = "../smoke-test/attribute" }
 diem-swarm = { path = "../diem-swarm"}
 diem-temppath = { path = "../../common/temppath" }
-diem-events-fetcher = { path = "../../language/diem-tools/diem-events-fetcher" }
 diem-time-service = { path = "../../common/time-service", features = ["testing"] }
 diem-transaction-replay = { path = "../../language/diem-tools/transaction-replay" }
 diem-types = { path = "../../types" }
@@ -57,3 +61,7 @@ diem-workspace-hack = { path = "../../common/workspace-hack" }
 diem-writeset-generator = { path = "../../language/diem-tools/writeset-transaction-generator" }
 diem-framework = { path = "../../language/diem-framework" }
 diem-transaction-builder = { path = "../../sdk/transaction-builder" }
+
+[[test]]
+name = "forge"
+harness = false

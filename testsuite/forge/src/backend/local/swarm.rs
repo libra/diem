@@ -136,7 +136,7 @@ impl LocalSwarmBuilder {
         let root_account = LocalAccount::new(
             diem_sdk::types::account_config::diem_root_address(),
             AccountKey::from_private_key(root_keys.root_key),
-            0,
+            1,
         );
 
         // Designated dealer account is built to have the same private key as the TC account

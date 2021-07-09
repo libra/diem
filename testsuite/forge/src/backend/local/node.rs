@@ -5,7 +5,10 @@ use crate::{HealthCheckError, Node, NodeExt, Validator};
 use anyhow::{anyhow, Context, Result};
 use diem_config::config::NodeConfig;
 use diem_logger::{debug, warn};
-use diem_sdk::types::{account_address::AccountAddress, PeerId};
+use diem_sdk::{
+    client::BlockingClient,
+    types::{account_address::AccountAddress, PeerId},
+};
 use std::{
     env,
     fs::{self, OpenOptions},
@@ -159,7 +162,12 @@ impl LocalNode {
         self.debug_client()
             .get_node_metrics()
             .map(|_| ())
-            .map_err(HealthCheckError::RpcFailure)
+            .map_err(HealthCheckError::RpcFailure)?;
+
+        BlockingClient::new(self.json_rpc_endpoint())
+            .get_metadata()
+            .map(|_| ())
+            .map_err(|e| HealthCheckError::RpcFailure(e.into()))
     }
 }
 

@@ -349,8 +349,6 @@ impl CompiledModuleStrategyGen {
                         address_identifiers,
                         constant_pool,
                     }
-                    .freeze()
-                    .expect("valid modules should satisfy the bounds checker")
                 },
             )
     }

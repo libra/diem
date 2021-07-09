@@ -7,7 +7,10 @@ use diem_types::{
     transaction::{ChangeSet, WriteSetPayload},
     write_set::{WriteOp, WriteSet, WriteSetMut},
 };
-use move_binary_format::file_format::{basic_test_module, empty_module};
+use move_binary_format::{
+    check_bounds::BoundsChecker,
+    file_format::{basic_test_module, empty_module},
+};
 use move_core_types::identifier::Identifier;
 
 #[test]
@@ -26,12 +29,12 @@ fn release_test() {
     for i in 0..10 {
         let mut module = empty_module();
         module.identifiers[0] = Identifier::new(format!("test_{:?}", i)).unwrap();
-        let compiled_module = module.freeze().unwrap();
+        BoundsChecker::verify_module(&module).expect("invalid bounds in module");
 
         let mut bytes = vec![];
-        compiled_module.serialize(&mut bytes).unwrap();
-        modules_and_bytes.push((bytes.clone(), compiled_module.clone()));
-        modules.push(compiled_module);
+        module.serialize(&mut bytes).unwrap();
+        modules_and_bytes.push((bytes.clone(), module.clone()));
+        modules.push(module);
         modules_bytes.push(bytes);
     }
 
@@ -39,7 +42,8 @@ fn release_test() {
     let replace_module = {
         let mut module = basic_test_module();
         module.identifiers[0] = Identifier::new(format!("test_{:?}", 9)).unwrap();
-        module.freeze().unwrap()
+        BoundsChecker::verify_module(&module).expect("invalid bounds in module");
+        module
     };
     let mut replace_module_bytes = vec![];
     replace_module.serialize(&mut replace_module_bytes).unwrap();

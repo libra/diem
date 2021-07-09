@@ -6,8 +6,10 @@ use super::{
     expand, globals, infinite_instantiations, recursive_structs,
 };
 use crate::{
+    diag,
+    errors::diagnostic_codes::*,
     expansion::ast::{Fields, ModuleIdent, Value_},
-    naming::ast::{self as N, Type, TypeName_, Type_},
+    naming::ast::{self as N, TParam, TParamID, Type, TypeName_, Type_},
     parser::ast::{Ability_, BinOp_, ConstantName, Field, FunctionName, StructName, UnaryOp_, Var},
     shared::{unique_map::UniqueMap, *},
     typing::ast as T,
@@ -570,9 +572,116 @@ fn struct_def(context: &mut Context, s: &mut N::StructDefinition) {
     }
     core::solve_constraints(context);
 
+    let type_params: BTreeMap<_, _> = s
+        .type_parameters
+        .iter()
+        .map(|sp| {
+            let loc = sp.param.user_specified_name.loc;
+            (sp.param.id, (sp.is_phantom, loc))
+        })
+        .collect();
+
     for (_field_loc, _field_, idx_ty) in field_map.iter_mut() {
         expand::type_(context, &mut idx_ty.1);
+        check_phantom_params(
+            context,
+            &type_params,
+            &idx_ty.1,
+            Some(NonPhantomPos::FieldType),
+        );
     }
+}
+
+enum NonPhantomPos {
+    FieldType,
+    TypeArg,
+    Other,
+}
+
+fn check_phantom_params(
+    context: &mut Context,
+    type_parameters: &BTreeMap<TParamID, (bool, Loc)>,
+    ty: &Type,
+    non_phantom_pos: Option<NonPhantomPos>,
+) {
+    use NonPhantomPos::*;
+
+    match &ty.value {
+        Type_::Param(param) => {
+            // Don't bother checking unbound type parameters as it should fail somewhere else
+            match (type_parameters.get(&param.id), non_phantom_pos) {
+                (Some(&(is_phantom, param_decl_loc)), Some(non_phantom_pos)) if is_phantom => {
+                    invalid_phantom_use_error(
+                        context,
+                        non_phantom_pos,
+                        param_decl_loc,
+                        param,
+                        ty.loc,
+                    );
+                }
+                _ => {}
+            }
+        }
+        Type_::Apply(_, n, ty_args) => match &n.value {
+            TypeName_::Builtin(_) => {
+                for ty_arg in ty_args {
+                    check_phantom_params(context, type_parameters, ty_arg, Some(TypeArg));
+                }
+            }
+            TypeName_::ModuleType(m, n) => {
+                let param_is_phantom: Vec<_> = context
+                    .struct_tparams(m, n)
+                    .iter()
+                    .map(|param| param.is_phantom)
+                    .collect();
+                // Length of params and args may be different but we can still report errors
+                // for parameters with information
+                for (is_phantom, ty_arg) in param_is_phantom.into_iter().zip(ty_args) {
+                    check_phantom_params(
+                        context,
+                        type_parameters,
+                        ty_arg,
+                        (!is_phantom).then(|| TypeArg),
+                    );
+                }
+            }
+            // Tuples cannot appear in structs, but we still report them as a non-phantom position in
+            // case they are ever allowed.
+            TypeName_::Multiple(_) => {
+                for ty_arg in ty_args {
+                    check_phantom_params(context, type_parameters, ty_arg, Some(Other));
+                }
+            }
+        },
+        // References cannot appear in structs, but we still report them as a non-phantom position
+        // in case they are ever allowed.
+        Type_::Ref(_, inner) => check_phantom_params(context, type_parameters, &inner, Some(Other)),
+        Type_::Var(_) | Type_::Anything | Type_::Unit | Type_::UnresolvedError => {}
+    }
+}
+
+fn invalid_phantom_use_error(
+    context: &mut Context,
+    non_phantom_pos: NonPhantomPos,
+    param_decl_loc: Loc,
+    param: &TParam,
+    ty_loc: Loc,
+) {
+    use NonPhantomPos::*;
+
+    let msg = match non_phantom_pos {
+        FieldType => "Phantom type parameter cannot be used as a field type",
+        TypeArg => "Phantom type parameter cannot be used as an argument to a parameter not declared as phantom",
+        Other => "Phantom type parameter  used in non-phantom position",
+    };
+
+    let decl_msg = format!("'{}' declared here as phantom", &param.user_specified_name);
+
+    context.env.add_diag(diag!(
+        Declarations::InvalidPhantomUse,
+        (ty_loc, msg),
+        (param_decl_loc, decl_msg),
+    ));
 }
 
 //**************************************************************************************************

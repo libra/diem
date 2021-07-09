@@ -1,0 +1,118 @@
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:11:10 ───
+    │
+ 11 │         *ref = HasDrop<NoAbilities, NoAbilities> { a: NoAbilities { } };
+    │          ^^^ Invalid mutation. Mutation requires the 'drop' ability as the old value is destroyed
+    ·
+ 10 │     fun f1(ref: &mut HasDrop<NoAbilities, NoAbilities>) {
+    │                      --------------------------------- The type '0x42::M::HasDrop<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'drop'
+    ·
+ 10 │     fun f1(ref: &mut HasDrop<NoAbilities, NoAbilities>) {
+    │                              ----------- The type '0x42::M::HasDrop<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'drop' but the type argument '0x42::M::NoAbilities' does not have the required ability 'drop'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:16:9 ───
+    │
+ 16 │         _ = HasDrop<NoAbilities, NoAbilities> { a: NoAbilities { } };
+    │         ^ Cannot ignore values without the 'drop' ability. The value must be used
+    ·
+ 16 │         _ = HasDrop<NoAbilities, NoAbilities> { a: NoAbilities { } };
+    │             -------------------------------------------------------- The type '0x42::M::HasDrop<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'drop'
+    ·
+ 16 │         _ = HasDrop<NoAbilities, NoAbilities> { a: NoAbilities { } };
+    │                     ----------- The type '0x42::M::HasDrop<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'drop' but the type argument '0x42::M::NoAbilities' does not have the required ability 'drop'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:25:10 ───
+    │
+ 25 │         (copy x, x)
+    │          ^^^^^^ Invalid 'copy' of owned value without the 'copy' ability
+    ·
+ 24 │     fun f4(x: HasCopy<NoAbilities, NoAbilities>): (HasCopy<NoAbilities, NoAbilities>,  HasCopy<NoAbilities, NoAbilities>) {
+    │               --------------------------------- The type '0x42::M::HasCopy<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'copy'
+    ·
+ 24 │     fun f4(x: HasCopy<NoAbilities, NoAbilities>): (HasCopy<NoAbilities, NoAbilities>,  HasCopy<NoAbilities, NoAbilities>) {
+    │                       ----------- The type '0x42::M::HasCopy<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'copy' but the type argument '0x42::M::NoAbilities' does not have the required ability 'copy'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:30:9 ───
+    │
+ 30 │         move_to<HasKey<NoAbilities, NoAbilities>>(s, x);
+    │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid call of 'move_to'
+    ·
+ 30 │         move_to<HasKey<NoAbilities, NoAbilities>>(s, x);
+    │                 -------------------------------- The type '0x42::M::HasKey<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'key'
+    ·
+ 30 │         move_to<HasKey<NoAbilities, NoAbilities>>(s, x);
+    │                        ----------- The type '0x42::M::HasKey<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'key' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:35:9 ───
+    │
+ 35 │         move_from<HasKey<NoAbilities, NoAbilities>>(@0x0)
+    │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid call of 'move_from'
+    ·
+ 35 │         move_from<HasKey<NoAbilities, NoAbilities>>(@0x0)
+    │                   -------------------------------- The type '0x42::M::HasKey<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'key'
+    ·
+ 35 │         move_from<HasKey<NoAbilities, NoAbilities>>(@0x0)
+    │                          ----------- The type '0x42::M::HasKey<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'key' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:40:9 ───
+    │
+ 40 │         exists<HasKey<NoAbilities, NoAbilities>>(@0x0)
+    │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid call of 'exists'
+    ·
+ 40 │         exists<HasKey<NoAbilities, NoAbilities>>(@0x0)
+    │                -------------------------------- The type '0x42::M::HasKey<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'key'
+    ·
+ 40 │         exists<HasKey<NoAbilities, NoAbilities>>(@0x0)
+    │                       ----------- The type '0x42::M::HasKey<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'key' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:44:15 ───
+    │
+ 44 │     fun f8(): RequireStore<HasStore<NoAbilities, NoAbilities>> {
+    │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 'store' constraint not satisifed
+    ·
+ 44 │     fun f8(): RequireStore<HasStore<NoAbilities, NoAbilities>> {
+    │                            ---------------------------------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'store'
+    ·
+ 44 │     fun f8(): RequireStore<HasStore<NoAbilities, NoAbilities>> {
+    │                                     ----------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'store' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    ·
+  7 │     struct RequireStore<T: store> { a: T }
+    │                            ----- 'store' constraint declared here
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_param_op_abilities_invalid.move:45:9 ───
+    │
+ 45 │         RequireStore<HasStore<NoAbilities, NoAbilities>> { a: HasStore { a: NoAbilities {} } }
+    │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 'store' constraint not satisifed
+    ·
+ 45 │         RequireStore<HasStore<NoAbilities, NoAbilities>> { a: HasStore { a: NoAbilities {} } }
+    │                      ---------------------------------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'store'
+    ·
+ 45 │         RequireStore<HasStore<NoAbilities, NoAbilities>> { a: HasStore { a: NoAbilities {} } }
+    │                               ----------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'store' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    ·
+  7 │     struct RequireStore<T: store> { a: T }
+    │                            ----- 'store' constraint declared here
+    │
+

@@ -718,10 +718,7 @@ fn type_parameter(
         context.env.add_diag(diag!(
             Declarations::DuplicateItem,
             (loc, msg),
-            (
-                old_loc,
-                "Type parameter previously defined here".to_string()
-            ),
+            (old_loc, "Type parameter previously defined here"),
         ))
     }
     tp

@@ -1,0 +1,56 @@
+error: 
+
+   ┌── tests/move_check/typing/phantom_params_field_abilities_invalid.move:9:29 ───
+   │
+ 9 │     struct S1 has drop { a: HasDrop<NoAbilities, NoAbilities> }
+   │                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid field type. The struct was declared with the ability 'drop' so all fields require the ability 'drop'
+   ·
+ 9 │     struct S1 has drop { a: HasDrop<NoAbilities, NoAbilities> }
+   │                             --------------------------------- The type '0x42::M::HasDrop<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'drop'
+   ·
+ 9 │     struct S1 has drop { a: HasDrop<NoAbilities, NoAbilities> }
+   │                                     ----------- The type '0x42::M::HasDrop<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'drop' but the type argument '0x42::M::NoAbilities' does not have the required ability 'drop'
+   │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_params_field_abilities_invalid.move:10:29 ───
+    │
+ 10 │     struct S2 has copy { a: HasCopy<NoAbilities, NoAbilities> }
+    │                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid field type. The struct was declared with the ability 'copy' so all fields require the ability 'copy'
+    ·
+ 10 │     struct S2 has copy { a: HasCopy<NoAbilities, NoAbilities> }
+    │                             --------------------------------- The type '0x42::M::HasCopy<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'copy'
+    ·
+ 10 │     struct S2 has copy { a: HasCopy<NoAbilities, NoAbilities> }
+    │                                     ----------- The type '0x42::M::HasCopy<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'copy' but the type argument '0x42::M::NoAbilities' does not have the required ability 'copy'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_params_field_abilities_invalid.move:11:30 ───
+    │
+ 11 │     struct S3 has store { a: HasStore<NoAbilities, NoAbilities> }
+    │                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid field type. The struct was declared with the ability 'store' so all fields require the ability 'store'
+    ·
+ 11 │     struct S3 has store { a: HasStore<NoAbilities, NoAbilities> }
+    │                              ---------------------------------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'store'
+    ·
+ 11 │     struct S3 has store { a: HasStore<NoAbilities, NoAbilities> }
+    │                                       ----------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'store' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    │
+
+error: 
+
+    ┌── tests/move_check/typing/phantom_params_field_abilities_invalid.move:12:28 ───
+    │
+ 12 │     struct S4 has key { a: HasStore<NoAbilities, NoAbilities> }
+    │                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Invalid field type. The struct was declared with the ability 'key' so all fields require the ability 'store'
+    ·
+ 12 │     struct S4 has key { a: HasStore<NoAbilities, NoAbilities> }
+    │                            ---------------------------------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' does not have the ability 'store'
+    ·
+ 12 │     struct S4 has key { a: HasStore<NoAbilities, NoAbilities> }
+    │                                     ----------- The type '0x42::M::HasStore<0x42::M::NoAbilities, 0x42::M::NoAbilities>' can have the ability 'store' but the type argument '0x42::M::NoAbilities' does not have the required ability 'store'
+    │
+

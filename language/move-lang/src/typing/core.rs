@@ -346,7 +346,7 @@ impl<'env> Context<'env> {
             .expect("ICE should have failed in naming")
     }
 
-    fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> &Vec<StructTypeParameter> {
+    pub fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> &Vec<StructTypeParameter> {
         &self.struct_definition(m, n).type_parameters
     }
 
@@ -546,10 +546,19 @@ pub fn infer_abilities(context: &Context, subst: &Subst, ty: Type) -> AbilitySet
         T::UnresolvedError | T::Anything => AbilitySet::all(loc),
         T::Param(TParam { abilities, .. }) | T::Apply(Some(abilities), _, _) => abilities,
         T::Apply(None, n, ty_args) => {
-            let declared_abilities = match &n.value {
-                TypeName_::Multiple(_) => AbilitySet::collection(loc),
-                TypeName_::Builtin(b) => b.value.declared_abilities(b.loc),
-                TypeName_::ModuleType(m, n) => context.struct_declared_abilities(&m, &n).clone(),
+            let (declared_abilities, ty_args) = match &n.value {
+                TypeName_::Multiple(_) => (AbilitySet::collection(loc), ty_args),
+                TypeName_::Builtin(b) => (b.value.declared_abilities(b.loc), ty_args),
+                TypeName_::ModuleType(m, n) => {
+                    let declared_abilities = context.struct_declared_abilities(&m, &n).clone();
+                    let non_phantom_ty_args = ty_args
+                        .into_iter()
+                        .zip(context.struct_tparams(&m, &n))
+                        .filter(|(_, param)| !param.is_phantom)
+                        .map(|(arg, _)| arg)
+                        .collect::<Vec<_>>();
+                    (declared_abilities, non_phantom_ty_args)
+                }
             };
             let ty_args_abilities = ty_args
                 .into_iter()

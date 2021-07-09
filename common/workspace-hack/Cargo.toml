@@ -58,8 +58,7 @@ serde_json = { version = "1.0.64", features = ["default", "indexmap", "preserve_
 standback = { version = "0.2.15", default-features = false, features = ["std"] }
 subtle = { version = "2.4.0", default-features = false, features = ["std"] }
 tiny-keccak = { version = "2.0.2", features = ["default", "sha3"] }
-tokio = { version = "1.6.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
-tokio-tungstenite = { version = "0.13.0", features = ["connect", "default", "stream"] }
+tokio = { version = "1.7.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
 tokio-util = { version = "0.6.4", features = ["codec", "compat", "default", "futures-io", "io"] }
 toml = { version = "0.5.8", features = ["default"] }
 tracing = { version = "0.1.26", features = ["attributes", "default", "log", "std", "tracing-attributes"] }
@@ -120,8 +119,7 @@ subtle = { version = "2.4.0", default-features = false, features = ["std"] }
 syn-3575ec1268b04181 = { package = "syn", version = "0.15.44", features = ["clone-impls", "default", "derive", "extra-traits", "full", "parsing", "printing", "proc-macro", "quote", "visit"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1.0.72", features = ["clone-impls", "default", "derive", "extra-traits", "full", "parsing", "printing", "proc-macro", "quote", "visit", "visit-mut"] }
 tiny-keccak = { version = "2.0.2", features = ["default", "sha3"] }
-tokio = { version = "1.6.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
-tokio-tungstenite = { version = "0.13.0", features = ["connect", "default", "stream"] }
+tokio = { version = "1.7.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
 tokio-util = { version = "0.6.4", features = ["codec", "compat", "default", "futures-io", "io"] }
 toml = { version = "0.5.8", features = ["default"] }
 tracing = { version = "0.1.26", features = ["attributes", "default", "log", "std", "tracing-attributes"] }
@@ -177,8 +175,7 @@ serde_json = { version = "1.0.64", features = ["default", "indexmap", "preserve_
 standback = { version = "0.2.15", default-features = false, features = ["std"] }
 subtle = { version = "2.4.0", default-features = false, features = ["std"] }
 tiny-keccak = { version = "2.0.2", features = ["default", "sha3"] }
-tokio = { version = "1.6.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
-tokio-tungstenite = { version = "0.13.0", features = ["connect", "default", "stream"] }
+tokio = { version = "1.7.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
 tokio-util = { version = "0.6.4", features = ["codec", "compat", "default", "futures-io", "io"] }
 toml = { version = "0.5.8", features = ["default"] }
 tracing = { version = "0.1.26", features = ["attributes", "default", "log", "std", "tracing-attributes"] }
@@ -239,8 +236,7 @@ subtle = { version = "2.4.0", default-features = false, features = ["std"] }
 syn-3575ec1268b04181 = { package = "syn", version = "0.15.44", features = ["clone-impls", "default", "derive", "extra-traits", "full", "parsing", "printing", "proc-macro", "quote", "visit"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1.0.72", features = ["clone-impls", "default", "derive", "extra-traits", "full", "parsing", "printing", "proc-macro", "quote", "visit", "visit-mut"] }
 tiny-keccak = { version = "2.0.2", features = ["default", "sha3"] }
-tokio = { version = "1.6.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
-tokio-tungstenite = { version = "0.13.0", features = ["connect", "default", "stream"] }
+tokio = { version = "1.7.1", features = ["bytes", "default", "fs", "full", "io-std", "io-util", "libc", "macros", "memchr", "mio", "net", "num_cpus", "once_cell", "parking_lot", "process", "rt", "rt-multi-thread", "signal", "signal-hook-registry", "sync", "test-util", "time", "tokio-macros", "winapi"] }
 tokio-util = { version = "0.6.4", features = ["codec", "compat", "default", "futures-io", "io"] }
 toml = { version = "0.5.8", features = ["default"] }
 tracing = { version = "0.1.26", features = ["attributes", "default", "log", "std", "tracing-attributes"] }

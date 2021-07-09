@@ -6,6 +6,7 @@ use crate::{
     stream_rpc::{
         connection::{ConnectionContext, StreamSender},
         counters,
+        errors::StreamError,
         json_rpc::CallableStreamMethod,
         logging,
         subscription_types::SubscriptionConfig,
@@ -14,9 +15,8 @@ use crate::{
 use diem_infallible::Mutex;
 use diem_json_rpc_types::{
     stream::{
-        errors::StreamError,
-        request::{StreamJsonRpcRequest, StreamMethod},
-        response::StreamJsonRpcResponse,
+        request::{StreamJsonRpcRequest, StreamMethod, StreamMethodRequest},
+        response::{StreamJsonRpcResponse, UnsubscribeResult},
     },
     Id,
 };
@@ -115,7 +115,6 @@ impl ClientConnection {
     }
 
     /// Unsubscribe a subscription for a client
-    #[allow(unused)]
     pub fn unsubscribe(&self, id: &Id) -> Option<()> {
         let mut tasks = self.tasks.lock();
         if let Some(task) = tasks.get(id) {
@@ -123,6 +122,21 @@ impl ClientConnection {
                 "Unsubscribing: terminating task '{}' for Client#{}",
                 &id, &self.id
             );
+
+            // Send off a response to the client
+            let sender = self.sender.clone();
+            let id2 = id.clone();
+            tokio::spawn(async move {
+                let response = StreamJsonRpcResponse::result(
+                    Some(id2),
+                    Some(serde_json::to_value(UnsubscribeResult::ok()).unwrap()),
+                );
+                // If we can't send a message, connection is closed and we're going down
+                let _ = sender
+                    .send(Ok(serde_json::to_string(&response).unwrap()))
+                    .await;
+            });
+
             task.0.abort();
             tasks.remove(&id);
             Some(())
@@ -205,6 +219,12 @@ impl ClientConnection {
         db: Arc<dyn DbReader>,
         request: &mut StreamJsonRpcRequest,
     ) -> Result<(), JsonRpcError> {
+        // No task needs to spawn for an unsubscribe
+        if matches!(request.method_request, StreamMethodRequest::Unsubscribe) {
+            self.unsubscribe(&request.id);
+            return Ok(());
+        }
+
         let mut tasks = self.tasks.lock();
         if tasks.contains_key(&request.id) {
             debug!(
@@ -283,7 +303,15 @@ mod tests {
     async fn test_client_connection_success() {
         let (mock_db, client_connection, mut receiver) = create_client_connection();
 
-        let request = serde_json::json!({"id": "client-generated-id", "method": "subscribe_to_transactions", "params": {"starting_version": 0}, "jsonrpc": "2.0"}).to_string();
+        let request = serde_json::json!({
+          "id": "client-generated-id",
+          "method": "subscribe_to_transactions",
+          "params": {
+            "starting_version": 0
+          },
+          "jsonrpc": "2.0"
+        })
+        .to_string();
         client_connection
             .received_message(Arc::new(mock_db.clone()), request)
             .await;
@@ -292,7 +320,15 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let expected = serde_json::json!({"jsonrpc": "2.0", "id": "client-generated-id", "result": {"status": "OK", "transaction_version": mock_db.version}}).to_string();
+        let expected = serde_json::json!({
+          "jsonrpc": "2.0",
+          "id": "client-generated-id",
+          "result": {
+            "status": "OK",
+            "transaction_version": mock_db.version
+          }
+        })
+        .to_string();
         assert_eq!(result, expected);
 
         let result = timeout(50, receiver.recv(), "message 1")
@@ -309,6 +345,68 @@ mod tests {
             .to_string();
 
         assert_eq!(result, "0");
+    }
+
+    #[tokio::test]
+    async fn test_client_connection_unsubscribe() {
+        let (mock_db, client_connection, mut receiver) = create_client_connection();
+
+        let request = serde_json::json!({
+          "id": "client-generated-id",
+          "method": "subscribe_to_transactions",
+          "params": {
+            "starting_version": 0
+          },
+          "jsonrpc": "2.0"
+        })
+        .to_string();
+        client_connection
+            .received_message(Arc::new(mock_db.clone()), request)
+            .await;
+
+        let result = timeout(50, receiver.recv(), "message 1")
+            .await
+            .unwrap()
+            .unwrap();
+        let expected = serde_json::json!({
+          "jsonrpc": "2.0",
+          "id": "client-generated-id",
+          "result": {
+            "status": "OK",
+            "transaction_version": mock_db.version
+          }
+        })
+        .to_string();
+        assert_eq!(result, expected);
+
+        let request = serde_json::json!({
+          "id": "client-generated-id",
+          "method": "unsubscribe",
+          "params": {},
+          "jsonrpc": "2.0"
+        })
+        .to_string();
+
+        client_connection
+            .received_message(Arc::new(mock_db.clone()), request)
+            .await;
+
+        let result = timeout(50, receiver.recv(), "message 1")
+            .await
+            .unwrap()
+            .unwrap();
+
+        let result = serde_json::Value::from_str(&result);
+        println!("{:?}", &result);
+        let result = result
+            .expect("could not parse json")
+            .get("result")
+            .expect("no result")
+            .get("unsubscribe")
+            .expect("no unsubscribe")
+            .to_string();
+
+        assert_eq!(result, "\"OK\"");
     }
 
     #[tokio::test]

@@ -31,6 +31,8 @@ impl CallableStreamMethod {
             StreamMethodRequest::SubscribeToEvents(params) => {
                 EventsSubscription::default().run(helper, params)
             }
+            // This is handled in the `handle_rpc_request` function, as we don't spawn a task
+            StreamMethodRequest::Unsubscribe => unreachable!(),
         }
     }
 }

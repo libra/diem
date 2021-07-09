@@ -10,10 +10,11 @@ publish = ["crates-io"]
 edition = "2018"
 
 [features]
-default = ["async", "blocking", "faucet"]
+default = ["async", "blocking", "faucet", "websocket"]
 blocking = ["ureq", "ipnet"]
 async = ["reqwest", "tokio"]
 faucet = ["reqwest", "reqwest/blocking", "blocking"]
+websocket = ["async", "futures", "tokio-tungstenite"]
 
 [dependencies]
 anyhow = "1.0.38"
@@ -21,15 +22,18 @@ bcs = "0.1.2"
 hex = "0.4.3"
 serde = { version = "1.0.124", features = ["derive"] }
 serde_json = "1.0.64"
+tracing = "0.1.26"
 
 diem-crypto = { path = "../../crypto/crypto", version = "0.0.2" }
-diem-json-rpc-types  = { path = "../../json-rpc/types", version = "0.0.2" }
+diem-json-rpc-types = { path = "../../json-rpc/types", version = "0.0.2" }
 move-core-types = { path = "../../language/move-core/types", version = "0.0.2" }
 diem-types = { path = "../../types", version = "0.0.2" }
 
 # Optional Dependencies
+futures = {version = "0.3.12", optional = true }
 reqwest = { version = "0.11.2", features = ["json"], optional = true }
-tokio = { version = "1.3.0", features = ["time"], default_features = false, optional = true }
+tokio = { version = "1.6.1", features = ["time"], default_features = false, optional = true }
+tokio-tungstenite = { version = "0.14", optional = true }
 ureq = { version = "1.5.4", features = ["json", "native-tls"], default-features = false, optional = true }
 ipnet = { version = "2.3", optional = true }
 

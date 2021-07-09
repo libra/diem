@@ -18,6 +18,7 @@ mod logging;
 pub mod startup;
 
 mod connection;
+mod errors;
 mod json_rpc;
 mod subscription_types;
 mod subscriptions;

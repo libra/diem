@@ -7,7 +7,18 @@ use crate::test_utils::{
     setup_swarm_and_client_proxy,
 };
 use cli::client_proxy::ClientProxy;
+
+use diem_json_rpc_types::Id;
+use diem_sdk::client::stream::{
+    request::StreamMethod, response::StreamJsonRpcResponseView, StreamingClientConfig,
+};
 use diem_types::{ledger_info::LedgerInfo, waypoint::Waypoint};
+use futures::StreamExt;
+use std::time::Duration;
+use tokio::{
+    runtime::Runtime,
+    time::{sleep, timeout},
+};
 
 #[test]
 fn test_create_mint_transfer_block_metadata() {
@@ -26,6 +37,95 @@ fn test_create_mint_transfer_block_metadata() {
         "BlockMetadata txn not produced, current version: {}",
         version
     );
+}
+
+#[test]
+fn test_get_events_via_websocket_stream() {
+    let (_env, client) = setup_swarm_and_client_proxy(2, 1);
+
+    let currencies = client
+        .client
+        .get_currency_info()
+        .expect("Could not get currency info");
+
+    let rt = Runtime::new().unwrap();
+    let _guard = rt.enter();
+
+    let ms_500 = Duration::from_millis(500);
+
+    let config = Some(StreamingClientConfig {
+        channel_size: 1,
+        ok_timeout_millis: 1_000,
+    });
+    let mut s_client = rt
+        .block_on(timeout(ms_500, client.streaming_client(config)))
+        .unwrap_or_else(|e| panic!("Timeout creating StreamingClient: {}", e))
+        .unwrap_or_else(|e| panic!("Error connecting to WS endpoint: {}", e));
+
+    for (i, currency) in currencies.iter().enumerate() {
+        println!("Subscribing to events for {}", &currency.code);
+
+        let mut subscription_stream = rt
+            .block_on(timeout(
+                ms_500,
+                s_client.subscribe_events(currency.mint_events_key, 0),
+            ))
+            .unwrap_or_else(|e| panic!("Timeout subscribing to {}: {}", &currency.code, e))
+            .unwrap_or_else(|e| {
+                panic!("Error subscribing to currency '{}': {}", &currency.code, e)
+            });
+
+        assert_eq!(subscription_stream.id(), &Id::Number(i as u64));
+
+        let count_before = rt
+            .block_on(timeout(ms_500, s_client.subscription_count()))
+            .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
+        assert_eq!(count_before, 1, "Only one subscription should be running");
+
+        // If we're here, then the subscription has already sent the 'OK' message
+        let count_after;
+        if &currency.code == "XUS" {
+            println!("Getting msg 1 for {}", &currency.code);
+
+            let response = rt
+                .block_on(timeout(ms_500, subscription_stream.next()))
+                .unwrap_or_else(|e| panic!("Timeout getting message 1: {}", e))
+                .unwrap_or_else(|| panic!("Currency '{}' response 1 is None", &currency.code))
+                .unwrap_or_else(|e| {
+                    panic!("Currency '{}' response 1 is Err: {}", &currency.code, e)
+                });
+
+            println!("Got msg 1 for {}: {:?}", &currency.code, &response);
+
+            let response_view = response
+                .parse_result(&StreamMethod::SubscribeToEvents)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Currency '{}' response 1 view is err: {}",
+                        &currency.code, e
+                    )
+                })
+                .unwrap_or_else(|| panic!("Currency '{}' response 1 view is None", &currency.code));
+
+            match response_view {
+                StreamJsonRpcResponseView::Event(_) => {}
+                _ => panic!("Expected 'Event', but got: {:?}", response_view),
+            }
+        }
+
+        drop(subscription_stream);
+
+        rt.block_on(sleep(ms_500));
+
+        count_after = rt
+            .block_on(timeout(ms_500, s_client.subscription_count()))
+            .unwrap_or_else(|e| panic!("Timeout count for {}: {}", &currency.code, e));
+
+        assert_eq!(
+            count_after, 0,
+            "No subscriptions should be running at the end"
+        );
+    }
 }
 
 #[test]

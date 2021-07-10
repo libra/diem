@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+# Copyright (c) The Diem Core Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+import argparse, json, tempfile, time
+import getpass, os, subprocess, sys
+
+from kube import (
+    kube_init_context,
+    kube_select_cluster,
+    get_cluster_context,
+    kube_wait_job,
+    create_forge_job,
+)
+
+TAG = ""
+WORKSPACE = ""
+DEFL_TIMEOUT_SECS = 2700  # Default timeout is 45 mins
+USER = getpass.getuser()  # Use the current user for naming
+OUTPUT_TEE = os.getenv("FGI_OUTPUT_LOG", tempfile.mkstemp()[1])
+
+HEADER = "\033[95m"
+OKBLUE = "\033[94m"
+OKGREEN = "\033[92m"
+WARNING = "\033[93m"
+FAIL = "\033[91m"
+RESTORE = "\033[0m"
+
+# build the arg parser and return a tuple of (fgi args, forge args)
+def build_argparser():
+    parser = argparse.ArgumentParser(
+        description="Entrypoint for the Forge unified testing framework"
+    )
+    parser.add_argument(
+        "--timeout-secs",
+        default=DEFL_TIMEOUT_SECS,
+        help="Timeout for the Forge pod in seconds",
+    )
+    parser.add_argument(
+        "--workspace",
+        "-W",
+        help="Workspace or kubernetes cluster to run Forge on, rather than picking one at random",
+    )
+    parser.add_argument(
+        "--env",
+        "-E",
+        action="append",
+        default=[],
+        help="Extra environment variables to pass to Forge",
+    )
+    build_group = parser.add_mutually_exclusive_group(required=True)
+    build_group.add_argument("--tag", "-T", help="Image tag to use in kubernetes Forge tests")
+    build_group.add_argument("--pr", "-p", help="PR to build images from for kubernetes Forge tests")
+    build_group.add_argument(
+        "--local-swarm",
+        "-L",
+        action="store_true",
+        help="Run Forge tests locally instead of on a kubernetes cluster",
+    )
+    return parser.parse_known_args()
+
+
+def get_grafana_url(cluster_name):
+    grafana_url_pattern = "http://mon.CLUSTERNAME.aws.hlw3truzy4ls.com"
+    return grafana_url_pattern.replace("CLUSTERNAME", cluster_name)
+
+
+def cli_tool_installed(tool_name):
+    ret = subprocess.run(
+        ["which", tool_name], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL
+    )
+    return ret.returncode == 0
+
+
+# ================ Parse the args ================
+args, forge_args = build_argparser()
+
+# build and push the images to be used, since an image tag
+# was not specified explicitly
+TAG = args.tag
+if not args.tag:
+    if args.pr:  # codebuild using a PR
+        ret = subprocess.call(
+            ["aws", "codebuild", "list-projects"], stdout=subprocess.DEVNULL
+        )
+        if ret != 0:
+            print(f"{FAIL}Failed to access codebuild. Try aws-mfa?{RESTORE}")
+            sys.exit(1)
+        subprocess.call(
+            ["./docker/build-aws.sh", "--build-forge", "--version", f"pull/{args.pr}"]
+        )
+        TAG = f"dev_{USER}_pull_{args.pr}"
+        print(
+            f"**TIP Use ./scripts/fgi -T {TAG} <...> to restart this run with the same tag without rebuilding it"
+        )
+
+# ================ Test setup ================
+print(f"""
+    {HEADER}______{OKBLUE}____  {OKGREEN}____  {WARNING}______{FAIL}______
+   {HEADER}/ ____{OKBLUE}/ __ \{OKGREEN}/ __ \{WARNING}/ ____{FAIL}/ ____/
+  {HEADER}/ /_  {OKBLUE}/ / / {OKGREEN}/ /_/ {WARNING}/ / __{FAIL}/ __/
+ {HEADER}/ __/ {OKBLUE}/ /_/ {OKGREEN}/ _, _{WARNING}/ /_/ {FAIL}/ /___
+{HEADER}/_/    {OKBLUE}\____{OKGREEN}/_/ |_|{WARNING}\____{FAIL}/_____/
+{RESTORE}
+""")
+
+if args.local_swarm:
+    print("Running Forge on backend: local swarm")
+    ret = subprocess.call(["cargo", "run", "-p", "forge", "--", "--local-swarm"])
+    sys.exit(ret)
+
+print("Running Forge on backend: kubernetes testnet")
+
+if not cli_tool_installed("kubectl"):
+    print(
+        f"{WARNING}kubectl is not installed. Please install kubectl. On mac, you can use: brew install kubectl{RESTORE}"
+    )
+    print(
+        f"{WARNING}or install via dev setup: scripts/dev_setup.sh -i kubectl{RESTORE}"
+    )
+    sys.exit(1)
+
+print("\nAttempting to reach Forge Kubernetes testnets...")
+kube_init_context()
+print("Grabbing a testnet...")
+workspace = args.workspace
+if not args.workspace:
+    workspace = kube_select_cluster()
+    if not workspace:
+        print(f"{FAIL}Failed to select forge testnet cluster{RESTORE}")
+        sys.exit(1)
+context = get_cluster_context(workspace)
+print(f"Running experiments on cluster: {workspace}")
+grafana_url = get_grafana_url(workspace)
+print()
+
+job_name, template = create_forge_job(
+    context, USER, TAG, args.timeout_secs, args.env, forge_args
+)
+if not template:
+    print(f"{FAIL}Failed to create forge job template{RESTORE}")
+    sys.exit(1)
+
+_, specfile = tempfile.mkstemp(suffix=".json")
+with open(specfile, "w") as f:
+    f.write(json.dumps(template))
+print(f"Specfile: {specfile}")
+
+# ================ Create and run the job ================
+print(f"Creating job: {job_name}")
+ret = subprocess.call(["kubectl", f"--context={context}", "apply", "-f", specfile])
+if ret != 0:
+    print(f"{FAIL}Failed to create forge job{RESTORE}")
+    sys.exit(1)
+
+ret = kube_wait_job(job_name, context)
+if ret != 0:
+    print(f"{FAIL}Failed to start forge job{RESTORE}")
+    sys.exit(1)
+
+# account for the time delta between querying pod status and finishing waiting
+delta_ms = 1000
+start_ts_ms = int(time.time() * 1000) - delta_ms
+print("\n**********")
+print(
+    f"{OKBLUE}Auto refresh Dashboard:{RESTORE} {grafana_url}/d/overview/overview?from={start_ts_ms}&to=now&refresh=10s&orgId=1"
+)
+print("**********")
+
+print(f"\nLog output: {OUTPUT_TEE}")
+print("==========begin-pod-logs==========")
+subprocess.call(
+    f"kubectl --context={context} logs -f -l job-name={job_name} | tee {OUTPUT_TEE}",
+    shell=True,
+)
+print("==========end-pod-logs==========")
+
+job_status = json.loads(
+    subprocess.check_output(
+        [
+            "kubectl",
+            f"--context={context}",
+            "get",
+            "job",
+            job_name,
+            "-o",
+            "jsonpath={.status}",
+        ],
+        encoding="UTF-8",
+    )
+)
+end_ts_ms = int(time.time() * 1000)
+print("\n**********")
+print(
+    f"{OKBLUE}Dashboard snapshot:{RESTORE} {grafana_url}/d/overview/overview?from={start_ts_ms}&to={end_ts_ms}&orgId=1"
+)
+print("**********\n")
+
+if "failed" in job_status and job_status["failed"] == 1:
+    print()
+    print(f"{FAIL}Job {job_name} failed{RESTORE}")
+    sys.exit(1)
+
+print(f"{OKGREEN}Job {job_name} succeeded!{RESTORE}")

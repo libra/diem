@@ -1666,15 +1666,6 @@ pub struct CompiledScript {
 impl CompiledScript {
     /// Returns the index of `main` in case a script is converted to a module.
     pub const MAIN_INDEX: FunctionDefinitionIndex = FunctionDefinitionIndex(0);
-
-    /// Converts this instance into `CompiledScript` after verifying it for basic internal
-    /// consistency. This includes bounds checks but no others.
-    #[allow(deprecated)]
-    pub fn freeze(self) -> PartialVMResult<CompiledScript> {
-        let script = self;
-        BoundsChecker::verify_script(&script)?;
-        Ok(script)
-    }
 }
 
 /// A `CompiledModule` defines the structure of a module which is the unit of published code.
@@ -1872,15 +1863,6 @@ impl CompiledModule {
         }
     }
 
-    /// Converts this instance into `CompiledModule` after verifying it for basic internal
-    /// consistency. This includes bounds checks but no others.
-    pub fn freeze(self) -> PartialVMResult<CompiledModule> {
-        // Impossible to access self_id for location as it might not be safe due to bounds failing
-        let module = self;
-        BoundsChecker::verify_module(&module)?;
-        Ok(module)
-    }
-
     /// Returns the code key of `module_handle`
     pub fn module_id_for_handle(&self, module_handle: &ModuleHandle) -> ModuleId {
         ModuleId::new(
@@ -1994,7 +1976,8 @@ pub fn dummy_procedure_module(code: Vec<Bytecode>) -> CompiledModule {
 
     module.function_handles.push(fun_handle);
     module.function_defs.push(fun_def);
-    module.freeze().unwrap()
+    BoundsChecker::verify_module(&module).expect("invalid bounds in module");
+    module
 }
 
 /// Return a simple script that contains only a return in the main()

@@ -323,7 +323,7 @@ Before VASP Domains, the Treasury Compliance account must send
 a transaction that invokes <code>add_vasp_domain</code> to set the <code>domains</code> field with a valid domain
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="VASPDomain.md#0x1_VASPDomain_publish_vasp_domains">publish_vasp_domains</a>(vasp_account: &signer)
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="VASPDomain.md#0x1_VASPDomain_publish_vasp_domains">publish_vasp_domains</a>(vasp_account: &signer)
 </code></pre>
 
 
@@ -332,7 +332,7 @@ a transaction that invokes <code>add_vasp_domain</code> to set the <code>domains
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="VASPDomain.md#0x1_VASPDomain_publish_vasp_domains">publish_vasp_domains</a>(
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="VASPDomain.md#0x1_VASPDomain_publish_vasp_domains">publish_vasp_domains</a>(
     vasp_account: &signer,
 ) {
     <a href="Roles.md#0x1_Roles_assert_parent_vasp_role">Roles::assert_parent_vasp_role</a>(vasp_account);

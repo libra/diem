@@ -9,6 +9,7 @@ address 0x1 {
 module SlidingNonce {
     use 0x1::Signer;
     use 0x1::Errors;
+    friend 0x1::DiemAccount;
 
     struct SlidingNonce has key {
         /// Minimum nonce in sliding window. All transactions with smaller
@@ -260,7 +261,7 @@ module SlidingNonce {
 
     /// Publishes nonce resource for `account`
     /// This is required before other functions in this module can be called for `account`
-    public fun publish(account: &signer) {
+    public(friend) fun publish(account: &signer) {
         assert(!exists<SlidingNonce>(Signer::address_of(account)), Errors::already_published(ENONCE_ALREADY_PUBLISHED));
         move_to(account, SlidingNonce {  min_nonce: 0, nonce_mask: 0 });
     }

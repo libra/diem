@@ -5,7 +5,7 @@
 
 use crate::{
     ast::QualifiedSymbol,
-    model::{GlobalEnv, ModuleId, StructEnv, StructId},
+    model::{AbilitySet, GlobalEnv, ModuleId, StructEnv, StructId, TypeParameter},
     symbol::{Symbol, SymbolPool},
 };
 use move_core_types::language_storage::{StructTag, TypeTag};
@@ -98,6 +98,24 @@ impl PrimitiveType {
             Signer => TypeTag::Signer,
             Num | Range | TypeValue | EventStore => return None,
         })
+    }
+
+    /// Returns the abilities of this primitive type.
+    /// Return None if the type only appears in spec.
+    pub fn get_abilities(&self, treat_num_as_int: bool) -> Option<AbilitySet> {
+        use PrimitiveType::*;
+        match self {
+            Bool | U8 | U64 | U128 | Address => Some(AbilitySet::PRIMITIVES),
+            Signer => Some(AbilitySet::SIGNER),
+            Num => {
+                if treat_num_as_int {
+                    Some(AbilitySet::PRIMITIVES)
+                } else {
+                    None
+                }
+            }
+            Range | TypeValue | EventStore => None,
+        }
     }
 }
 
@@ -462,6 +480,33 @@ impl Type {
         }
     }
 
+    /// Returns the abilities of this type.
+    /// Return None if the type is a type parameter or only appears in spec.
+    pub fn get_abilities(&self, env: &GlobalEnv, treat_num_as_int: bool) -> Option<AbilitySet> {
+        use Type::*;
+        match self {
+            Primitive(p) => p.get_abilities(treat_num_as_int),
+            Vector(elem) => Some(
+                AbilitySet::polymorphic_abilities(
+                    AbilitySet::VECTOR,
+                    vec![false],
+                    vec![elem.get_abilities(env, treat_num_as_int)?],
+                )
+                .unwrap(),
+            ),
+            Struct(module_id, struct_id, _) => Some(
+                env.get_struct(module_id.qualified(*struct_id))
+                    .get_abilities(),
+            ),
+            Reference(..) => Some(AbilitySet::REFERENCES),
+            // type parameters have no abilities, instead, they have ability constraints.
+            TypeParameter(..) => None,
+            // types only appears in spec
+            Tuple(..) | Fun(..) | TypeDomain(..) | ResourceDomain(..) | TypeLocal(..) | Error
+            | Var(..) => None,
+        }
+    }
+
     /// Get the unbound type variables in the type.
     pub fn get_vars(&self) -> BTreeSet<u16> {
         let mut vars = BTreeSet::new();
@@ -507,6 +552,226 @@ impl Type {
             _ => {}
         }
         visitor(self)
+    }
+}
+
+/// Holds the unification results between two type instantiations
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TypeUnification {
+    subst_lhs: BTreeMap<Type, Type>,
+    subst_rhs: BTreeMap<Type, Type>,
+}
+
+impl TypeUnification {
+    pub fn unify(
+        lhs: &Type,
+        rhs: &Type,
+        env: &GlobalEnv,
+        ty_params: &[TypeParameter],
+        match_num_and_int: bool,
+    ) -> Option<TypeUnification> {
+        let mut subst = BTreeMap::new();
+        let matched = Self::derive(&mut subst, lhs, rhs, env, ty_params, match_num_and_int);
+        if matched {
+            let mut unifier = TypeUnification::default();
+            unifier.extract_subst(lhs, &subst, true);
+            unifier.extract_subst(rhs, &subst, false);
+            Some(unifier)
+        } else {
+            None
+        }
+    }
+
+    pub fn unify_vec(
+        lhs: &[Type],
+        rhs: &[Type],
+        env: &GlobalEnv,
+        ty_params: &[TypeParameter],
+        match_num_and_int: bool,
+    ) -> Option<TypeUnification> {
+        let mut subst = BTreeMap::new();
+        let matched = Self::derive_vec(&mut subst, lhs, rhs, env, ty_params, match_num_and_int);
+        if matched {
+            let mut unifier = TypeUnification::default();
+            for t in lhs {
+                unifier.extract_subst(t, &subst, true);
+            }
+            for t in rhs {
+                unifier.extract_subst(t, &subst, false);
+            }
+            Some(unifier)
+        } else {
+            None
+        }
+    }
+
+    pub fn decompose(self) -> (BTreeMap<Type, Type>, BTreeMap<Type, Type>) {
+        (self.subst_lhs, self.subst_rhs)
+    }
+
+    fn extract_subst(&mut self, ty: &Type, subst: &BTreeMap<Type, Type>, is_lhs: bool) {
+        ty.visit(&mut |t| match t {
+            Type::TypeParameter(_) | Type::TypeLocal(_) => match subst.get(t) {
+                None => (),
+                Some(s) => {
+                    if is_lhs {
+                        self.subst_lhs.insert(t.clone(), s.clone());
+                    } else {
+                        self.subst_rhs.insert(t.clone(), s.clone());
+                    }
+                }
+            },
+            _ => (),
+        })
+    }
+
+    fn derive(
+        subst: &mut BTreeMap<Type, Type>,
+        lhs: &Type,
+        rhs: &Type,
+        env: &GlobalEnv,
+        ty_params: &[TypeParameter],
+        match_num_and_int: bool,
+    ) -> bool {
+        // helpers
+        let can_inst = |t_generic: &Type, t_concrete: &Type| {
+            let requirements = match t_generic {
+                Type::TypeParameter(idx) => ty_params.get(*idx as usize).unwrap().1 .0,
+                Type::TypeLocal(_) => AbilitySet::EMPTY,
+                _ => panic!("Only TypeParameter and TypeLocal allowed as a generic type"),
+            };
+            match t_concrete.get_abilities(env, match_num_and_int) {
+                None => false,
+                Some(abs) => requirements.is_subset(abs),
+            }
+        };
+
+        // panic if we see a type that should not appear in type instantiations
+        for t in &[lhs, rhs] {
+            match t {
+                Type::Reference(..)
+                | Type::Fun(..)
+                | Type::TypeDomain(..)
+                | Type::ResourceDomain(..)
+                | Type::Var(..)
+                | Type::Error => {
+                    let type_param_names = ty_params.iter().map(|p| p.0).collect();
+                    let ctxt = TypeDisplayContext::WithEnv {
+                        env,
+                        type_param_names: Some(type_param_names),
+                    };
+                    panic!(
+                        "Invariant violation: invalid type in type instantiation: {}",
+                        lhs.display(&ctxt)
+                    );
+                }
+                _ => (),
+            }
+        }
+        // now do the comparison
+        match (lhs, rhs) {
+            // primitive
+            (Type::Primitive(lhs_primitive), Type::Primitive(rhs_primitive)) => {
+                if lhs_primitive == rhs_primitive {
+                    return true;
+                }
+                if !match_num_and_int {
+                    return false;
+                }
+                match (lhs_primitive, rhs_primitive) {
+                    (PrimitiveType::Num, _) if rhs.is_number() => true,
+                    (_, PrimitiveType::Num) if lhs.is_number() => true,
+                    _ => false,
+                }
+            }
+            // tuple
+            (Type::Tuple(lhs_subs), Type::Tuple(rhs_subs)) => {
+                Self::derive_vec(subst, lhs_subs, rhs_subs, env, ty_params, match_num_and_int)
+            }
+            // vector
+            (Type::Vector(lhs_elem), Type::Vector(rhs_elem)) => {
+                Self::derive(subst, lhs_elem, rhs_elem, env, ty_params, match_num_and_int)
+            }
+            // struct
+            (
+                Type::Struct(lhs_mid, lhs_sid, lhs_inst),
+                Type::Struct(rhs_mid, rhs_sid, rhs_inst),
+            ) => {
+                if lhs_mid != rhs_mid || lhs_sid != rhs_sid {
+                    return false;
+                }
+                Self::derive_vec(subst, lhs_inst, rhs_inst, env, ty_params, match_num_and_int)
+            }
+            // type parameters and type locals
+            (Type::TypeParameter(lhs_param), Type::TypeParameter(rhs_param)) => {
+                lhs_param == rhs_param
+            }
+            (Type::TypeLocal(lhs_local), Type::TypeLocal(rhs_local)) => lhs_local == rhs_local,
+            (Type::TypeParameter(_), Type::TypeLocal(_)) => match subst.get(rhs).cloned() {
+                None => {
+                    subst.insert(rhs.clone(), lhs.clone());
+                    true
+                }
+                Some(s_rhs) => Self::derive(subst, lhs, &s_rhs, env, ty_params, match_num_and_int),
+            },
+            (Type::TypeLocal(_), Type::TypeParameter(_)) => match subst.get(lhs).cloned() {
+                None => {
+                    subst.insert(lhs.clone(), rhs.clone());
+                    true
+                }
+                Some(s_lhs) => Self::derive(subst, &s_lhs, rhs, env, ty_params, match_num_and_int),
+            },
+            (Type::TypeParameter(_), _) | (Type::TypeLocal(_), _) => {
+                match subst.get(lhs).cloned() {
+                    None => {
+                        if !can_inst(lhs, rhs) {
+                            return false;
+                        }
+                        subst.insert(lhs.clone(), rhs.clone());
+                        true
+                    }
+                    Some(s_lhs) => {
+                        Self::derive(subst, &s_lhs, rhs, env, ty_params, match_num_and_int)
+                    }
+                }
+            }
+            (_, Type::TypeParameter(_)) | (_, Type::TypeLocal(_)) => {
+                match subst.get(rhs).cloned() {
+                    None => {
+                        if !can_inst(rhs, lhs) {
+                            return false;
+                        }
+                        subst.insert(rhs.clone(), lhs.clone());
+                        true
+                    }
+                    Some(s_rhs) => {
+                        Self::derive(subst, lhs, &s_rhs, env, ty_params, match_num_and_int)
+                    }
+                }
+            }
+            // all other remaining cases are mismatches
+            _ => false,
+        }
+    }
+
+    fn derive_vec(
+        subst: &mut BTreeMap<Type, Type>,
+        lhs: &[Type],
+        rhs: &[Type],
+        env: &GlobalEnv,
+        ty_params: &[TypeParameter],
+        match_num_and_int: bool,
+    ) -> bool {
+        if lhs.len() != rhs.len() {
+            return false;
+        }
+        for (lhs_sub, rhs_sub) in lhs.iter().zip(rhs.iter()) {
+            let matched = Self::derive(subst, lhs_sub, rhs_sub, env, ty_params, match_num_and_int);
+            if !matched {
+                return false;
+            }
+        }
+        true
     }
 }
 

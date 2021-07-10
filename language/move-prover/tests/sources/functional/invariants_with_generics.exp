@@ -1,0 +1,10 @@
+Move prover returns: exiting with boogie generation errors
+error: Type quantification not supported by this backend.
+
+    ┌── tests/sources/functional/invariants_with_generics.move:52:9 ───
+    │
+ 52 │ ╭         forall t1: type, t2: type:
+ 53 │ │             (exists<S::Storage<t1, t2>>(@0x22) && exists<S::Storage<t1, t2>>(@0x23))
+ 54 │ │                 ==> global<S::Storage<t1, t2>>(@0x22) == global<S::Storage<t1, t2>>(@0x23);
+    │ ╰──────────────────────────────────────────────────────────────────────────────────────────^
+    │

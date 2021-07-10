@@ -126,13 +126,15 @@ impl<'a> Instrumenter<'a> {
         // in dependent modules and from which the code should therefore not depend on, apart
         // of for the update itself.
         let env = self.builder.global_env();
+        let ty_params = self.builder.get_target().get_type_parameters();
         let mut invariants = BTreeSet::new();
         let mut invariants_for_modified_memory = BTreeSet::new();
         for mem in usage_analysis::get_used_memory_inst(&self.builder.get_target()).iter() {
-            invariants.extend(env.get_global_invariants_for_memory(mem));
+            invariants.extend(env.get_global_invariants_for_memory(&ty_params, mem));
         }
         for mem in usage_analysis::get_modified_memory_inst(&self.builder.get_target()).iter() {
-            invariants_for_modified_memory.extend(env.get_global_invariants_for_memory(mem));
+            invariants_for_modified_memory
+                .extend(env.get_global_invariants_for_memory(&ty_params, mem));
         }
 
         let mut assumed_at_update = BTreeSet::new();
@@ -267,7 +269,8 @@ impl<'a> Instrumenter<'a> {
         mem: &QualifiedInstId<StructId>,
     ) -> Vec<&'a GlobalInvariant> {
         let env = self.builder.global_env();
-        env.get_global_invariants_for_memory(mem)
+        let ty_params = self.builder.get_target().get_type_parameters();
+        env.get_global_invariants_for_memory(&ty_params, mem)
             .iter()
             .filter_map(|id| {
                 env.get_global_invariant(*id)

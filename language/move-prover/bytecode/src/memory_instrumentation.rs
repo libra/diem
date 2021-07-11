@@ -169,7 +169,7 @@ impl<'a> Instrumenter<'a> {
                     };
 
                     // handle the write-back
-                    let (should_pack_ref, fina_ref_idx) = match &parent {
+                    let (should_pack_ref, final_ref_idx) = match &parent {
                         BorrowNode::LocalRoot(root_idx) => {
                             let ref_ty = Type::Reference(
                                 true,
@@ -319,7 +319,7 @@ impl<'a> Instrumenter<'a> {
                                 id,
                                 vec![],
                                 Operation::PackRefDeep,
-                                vec![fina_ref_idx],
+                                vec![final_ref_idx],
                                 None,
                             )
                         });

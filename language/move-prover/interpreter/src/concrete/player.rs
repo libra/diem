@@ -25,7 +25,7 @@ use move_core_types::{
 };
 use move_model::{
     ast::{Exp, MemoryLabel, TempIndex},
-    model::{FunId, FunctionEnv, ModuleId, StructId},
+    model::{FunId, FunctionEnv, GlobalEnv, ModuleId, StructId},
     ty as MT,
 };
 
@@ -644,16 +644,12 @@ impl<'env> FunctionContext<'env> {
                 Ok(vec![])
             }
             // write-back
-            Operation::IsParent(BorrowNode::Reference(parent_idx), edge) => {
+            Operation::IsParent(node, edge) => {
                 if cfg!(debug_assertions) {
                     assert_eq!(typed_args.len(), 1);
                 }
-                let result = self.handle_is_parent(*parent_idx, edge, typed_args.remove(0));
+                let result = self.handle_is_parent(node, edge, typed_args.remove(0), local_state);
                 Ok(vec![result])
-            }
-            Operation::IsParent(_, _) => {
-                // only Reference can appear in BorrowNode
-                unreachable!()
             }
             Operation::WriteBack(BorrowNode::GlobalRoot(qid), edge) => {
                 if cfg!(debug_assertions) {
@@ -934,7 +930,7 @@ impl<'env> FunctionContext<'env> {
             .enumerate()
             .map(|(idx, arg)| {
                 if mut_args.contains_key(&idx) {
-                    arg.box_into_mut_ref_arg(srcs[idx])
+                    arg.box_into_mut_ref_arg(self.ty_args.clone(), srcs[idx])
                 } else {
                     arg
                 }
@@ -1142,58 +1138,111 @@ impl<'env> FunctionContext<'env> {
 
     fn handle_is_parent(
         &self,
-        parent_idx: TempIndex,
+        node: &BorrowNode,
         edge: &BorrowEdge,
         op_val: TypedValue,
+        local_state: &LocalState,
     ) -> TypedValue {
-        fn follow_pointer_edge(p: &Pointer, e: &BorrowEdge) -> bool {
+        fn backtrack_pointer(
+            p: Pointer,
+            e: &BorrowEdge,
+            env: &GlobalEnv,
+            subst: &[BaseType],
+        ) -> Result<TempIndex, Option<Pointer>> {
             match (p, e) {
-                (Pointer::RefField(_, p_field_num), BorrowEdge::Field(_, e_field_num)) => {
-                    p_field_num == e_field_num
+                (p @ Pointer::Local(_), BorrowEdge::Direct) => Err(Some(p)),
+                (p @ Pointer::Global(_, _), BorrowEdge::Direct) => Err(Some(p)),
+                (
+                    Pointer::RefField(idx, p_struct_ty, p_field_num),
+                    BorrowEdge::Field(e_struct_inst, e_field_num),
+                ) => {
+                    let e_struct_ty = convert_model_struct_type(
+                        env,
+                        e_struct_inst.module_id,
+                        e_struct_inst.id,
+                        &e_struct_inst.inst,
+                        subst,
+                    );
+                    if p_struct_ty != e_struct_ty || p_field_num != *e_field_num {
+                        Err(None)
+                    } else {
+                        Ok(idx)
+                    }
                 }
-                (Pointer::RefElement(_, _), BorrowEdge::Index) => true,
-                _ => false,
+                (Pointer::RefElement(idx, _), BorrowEdge::Index) => Ok(idx),
+                (Pointer::RetRef(inner_inst, mut trace), _) => {
+                    let idx = match trace.pop().unwrap() {
+                        Pointer::ArgRef(_, arg_idx, _) => arg_idx,
+                        _ => unreachable!(),
+                    };
+                    let edges: Vec<_> = e.flatten().into_iter().cloned().collect();
+                    if trace.len() != edges.len()
+                        || !follow_pointer_trace(trace, &edges, env, &inner_inst)
+                    {
+                        Err(None)
+                    } else {
+                        Ok(idx)
+                    }
+                }
+                _ => Err(None),
             }
         }
 
-        fn follow_pointer_trace(trace: &[Pointer], edges: &[BorrowEdge]) -> bool {
-            for (p, e) in trace.iter().rev().zip(edges.iter()) {
-                if !follow_pointer_edge(p, e) {
+        fn follow_pointer_trace(
+            trace: Vec<Pointer>,
+            edges: &[BorrowEdge],
+            env: &GlobalEnv,
+            subst: &[BaseType],
+        ) -> bool {
+            for (p, e) in trace.into_iter().rev().zip(edges.iter()) {
+                if backtrack_pointer(p, e, env, subst).is_err() {
                     return false;
                 }
             }
             true
         }
 
+        let env = self.target.global_env();
         let (_, _, ptr) = op_val.decompose();
-        let is_parent = match ptr {
-            Pointer::RefField(idx, _) => idx == parent_idx,
-            Pointer::RefElement(idx, _) => idx == parent_idx,
-            Pointer::ArgRef(idx, _) => idx == parent_idx,
-            Pointer::RetRef(mut trace) => match trace.pop().unwrap() {
-                Pointer::ArgRef(idx, _) => {
-                    if idx == parent_idx {
-                        if trace.len() == 1 {
-                            follow_pointer_edge(trace.get(0).unwrap(), edge)
-                        } else {
-                            match edge {
-                                BorrowEdge::Hyper(hyper) => {
-                                    if hyper.len() == trace.len() {
-                                        follow_pointer_trace(&trace, hyper)
-                                    } else {
-                                        false
-                                    }
-                                }
-                                _ => false,
-                            }
-                        }
+
+        let mut p = ptr;
+        let flattened_edges = edge.flatten();
+        for (i, e) in flattened_edges.iter().rev().enumerate() {
+            match backtrack_pointer(p.clone(), e, env, &self.ty_args) {
+                Err(None) => {
+                    return TypedValue::mk_bool(false);
+                }
+                Err(Some(ptr)) => {
+                    if i == flattened_edges.len() - 1 {
+                        p = ptr;
                     } else {
-                        false
+                        return TypedValue::mk_bool(false);
                     }
                 }
-                _ => unreachable!(),
-            },
-            Pointer::None | Pointer::Local(_) | Pointer::Global(_) => unreachable!(),
+                Ok(next) => {
+                    if i != flattened_edges.len() - 1 {
+                        let (_, _, ptr) = local_state.get_value(next).decompose();
+                        p = ptr;
+                    }
+                }
+            }
+        }
+
+        let is_parent = match (p, node) {
+            (Pointer::Local(p_idx), BorrowNode::LocalRoot(n_idx)) => p_idx == *n_idx,
+            (Pointer::Global(_, p_struct_ty), BorrowNode::GlobalRoot(n_struct_inst)) => {
+                let n_struct_ty = convert_model_struct_type(
+                    env,
+                    n_struct_inst.module_id,
+                    n_struct_inst.id,
+                    &n_struct_inst.inst,
+                    &self.ty_args,
+                );
+                p_struct_ty == n_struct_ty
+            }
+            (Pointer::RefField(p_idx, _, _), BorrowNode::Reference(n_idx))
+            | (Pointer::RefElement(p_idx, _), BorrowNode::Reference(n_idx)) => p_idx == *n_idx,
+            _ => false,
         };
         TypedValue::mk_bool(is_parent)
     }
@@ -1209,9 +1258,12 @@ impl<'env> FunctionContext<'env> {
         let env = self.target.global_env();
         let inst = convert_model_struct_type(env, module_id, struct_id, ty_args, &self.ty_args);
         let addr = match op_struct.get_ptr() {
-            // TODO (mengxu) this needs to be extended to check for actual address in borrow graph
-            // only put the resource back when the address matches
-            Pointer::Global(addr) => *addr,
+            Pointer::Global(addr, p_inst) => {
+                if cfg!(debug_assertions) {
+                    assert_eq!(&inst, p_inst);
+                }
+                *addr
+            }
             _ => unreachable!(),
         };
         let old_resource = global_state.put_resource(addr, inst, op_struct.read_ref());
@@ -1256,16 +1308,14 @@ impl<'env> FunctionContext<'env> {
 
             // check pointer validity
             match op_val.get_ptr() {
-                Pointer::RetRef(trace) => {
-                    assert_eq!(trace.len(), 1);
-                    match trace.get(0).unwrap() {
-                        Pointer::ArgRef(ref_idx, original_ptr) => {
-                            assert_eq!(*ref_idx, local_ref);
-                            assert_eq!(original_ptr.as_ref(), old_val.get_ptr());
-                        }
-                        _ => unreachable!(),
+                Pointer::RetRef(_, trace) => match trace.get(0).unwrap() {
+                    Pointer::ArgRef(_, ref_idx, original_ptr) => {
+                        assert!(trace.is_empty());
+                        assert_eq!(*ref_idx, local_ref);
+                        assert_eq!(original_ptr.as_ref(), old_val.get_ptr());
                     }
-                }
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             }
         }
@@ -1291,20 +1341,20 @@ impl<'env> FunctionContext<'env> {
 
             // check pointer validity
             match op_val.get_ptr() {
-                Pointer::RefField(ref_idx, ref_field) => {
+                Pointer::RefField(ref_idx, _, ref_field) => {
                     assert_eq!(*ref_field, field_num);
                     assert_eq!(*ref_idx, local_ref);
                 }
-                Pointer::RetRef(trace) => {
+                Pointer::RetRef(_, trace) => {
                     assert_eq!(trace.len(), 2);
                     match trace.get(1).unwrap() {
-                        Pointer::ArgRef(ref_idx, _) => {
+                        Pointer::ArgRef(_, ref_idx, _) => {
                             assert_eq!(*ref_idx, local_ref);
                         }
                         _ => unreachable!(),
                     }
                     match trace.get(0).unwrap() {
-                        Pointer::RefField(_, ref_field) => {
+                        Pointer::RefField(_, _, ref_field) => {
                             assert_eq!(*ref_field, field_num);
                         }
                         _ => unreachable!(),
@@ -1331,10 +1381,10 @@ impl<'env> FunctionContext<'env> {
                 }
                 elem_num
             }
-            Pointer::RetRef(trace) => {
+            Pointer::RetRef(_, trace) => {
                 assert_eq!(trace.len(), 2);
                 match trace.get(1).unwrap() {
-                    Pointer::ArgRef(ref_idx, _) => {
+                    Pointer::ArgRef(_, ref_idx, _) => {
                         assert_eq!(*ref_idx, local_ref);
                     }
                     _ => unreachable!(),
@@ -1358,12 +1408,12 @@ impl<'env> FunctionContext<'env> {
         local_state: &mut LocalState,
     ) {
         let new_val = match op_val.get_ptr() {
-            Pointer::RetRef(trace) => {
+            Pointer::RetRef(_, trace) => {
                 let steps = edges.len();
                 if cfg!(debug_assertions) {
                     assert_eq!(trace.len(), steps + 1);
                     match trace.last().unwrap() {
-                        Pointer::ArgRef(ref_idx, _) => assert_eq!(*ref_idx, local_ref),
+                        Pointer::ArgRef(_, ref_idx, _) => assert_eq!(*ref_idx, local_ref),
                         _ => unreachable!(),
                     }
                 }
@@ -1374,7 +1424,7 @@ impl<'env> FunctionContext<'env> {
                     let ptr = trace.get(steps - 1 - i).unwrap();
                     let sub = match (ptr, edge) {
                         (
-                            Pointer::RefField(callee_idx, p_field_num),
+                            Pointer::RefField(callee_idx, _, p_field_num),
                             BorrowEdge::Field(qid, field_num),
                         ) => {
                             if cfg!(debug_assertions) {
@@ -1445,11 +1495,14 @@ impl<'env> FunctionContext<'env> {
             assert!(ty.is_ref(Some(true)));
         }
         match ptr {
-            Pointer::Global(addr) => TypedValue::mk_address(addr),
-            Pointer::RefField(parent, _) | Pointer::RefElement(parent, _) => {
+            Pointer::Global(addr, _) => TypedValue::mk_address(addr),
+            Pointer::RefField(parent, _, _) | Pointer::RefElement(parent, _) => {
                 self.handle_global_address(local_state.get_value(parent), local_state)
             }
-            Pointer::None | Pointer::Local(_) | Pointer::ArgRef(_, _) | Pointer::RetRef(_) => {
+            Pointer::None
+            | Pointer::Local(_)
+            | Pointer::ArgRef(_, _, _)
+            | Pointer::RetRef(_, _) => {
                 unreachable!()
             }
         }
@@ -1830,7 +1883,7 @@ impl<'env> FunctionContext<'env> {
                 let val = local_state.get_value(*index);
                 // mark mut_ref returns with the pointer trace
                 if val.get_ty().is_ref(Some(true)) {
-                    val.box_into_mut_ref_ret(&ptrs)
+                    val.box_into_mut_ref_ret(self.ty_args.clone(), &ptrs)
                 } else {
                     val
                 }

@@ -132,12 +132,12 @@ impl BaseValue {
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Pointer {
     None,
-    Global(AccountAddress),
     Local(TempIndex),
-    RefField(TempIndex, usize),
+    Global(AccountAddress, StructInstantiation),
+    RefField(TempIndex, StructInstantiation, usize),
     RefElement(TempIndex, usize),
-    ArgRef(TempIndex, Box<Pointer>),
-    RetRef(Vec<Pointer>),
+    ArgRef(Vec<BaseType>, TempIndex, Box<Pointer>),
+    RetRef(Vec<BaseType>, Vec<Pointer>),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -533,7 +533,7 @@ impl TypedValue {
     }
 
     /// Wrap the pointer in the mutable reference to mark that this ref is passed in as an argument
-    pub fn box_into_mut_ref_arg(self, index: TempIndex) -> TypedValue {
+    pub fn box_into_mut_ref_arg(self, outer_inst: Vec<BaseType>, index: TempIndex) -> TypedValue {
         let (ty, val, ptr) = self.decompose();
         if cfg!(debug_assertions) {
             assert!(ty.is_ref(Some(true)));
@@ -541,7 +541,7 @@ impl TypedValue {
         TypedValue {
             ty,
             val,
-            ptr: Pointer::ArgRef(index, Box::new(ptr)),
+            ptr: Pointer::ArgRef(outer_inst, index, Box::new(ptr)),
         }
     }
 
@@ -552,7 +552,7 @@ impl TypedValue {
             assert!(ty.is_ref(Some(true)));
         }
         let unboxed_ptr = match ptr {
-            Pointer::ArgRef(_, original_ptr) => *original_ptr,
+            Pointer::ArgRef(_, _, original_ptr) => *original_ptr,
             _ => unreachable!(),
         };
         TypedValue {
@@ -563,19 +563,26 @@ impl TypedValue {
     }
 
     /// Wrap the pointer in the mutable reference to mark that this ref is passed out as a return
-    pub fn box_into_mut_ref_ret(self, ptrs: &BTreeMap<TempIndex, &Pointer>) -> TypedValue {
+    pub fn box_into_mut_ref_ret(
+        self,
+        inner_inst: Vec<BaseType>,
+        ptrs: &BTreeMap<TempIndex, &Pointer>,
+    ) -> TypedValue {
         fn follow_return_pointers_recursive(
             cur: &Pointer,
             ptrs: &BTreeMap<TempIndex, &Pointer>,
             trace: &mut Vec<Pointer>,
         ) {
             match cur {
-                Pointer::ArgRef(_, _) => trace.push(cur.clone()),
-                Pointer::RefField(idx, _) | Pointer::RefElement(idx, _) => {
+                Pointer::ArgRef(_, _, _) => trace.push(cur.clone()),
+                Pointer::RefField(idx, _, _) | Pointer::RefElement(idx, _) => {
                     trace.push(cur.clone());
                     follow_return_pointers_recursive(ptrs.get(idx).unwrap(), ptrs, trace);
                 }
-                Pointer::None | Pointer::Local(_) | Pointer::Global(_) | Pointer::RetRef(_) => {
+                Pointer::None
+                | Pointer::Local(_)
+                | Pointer::Global(_, _)
+                | Pointer::RetRef(_, _) => {
                     unreachable!()
                 }
             }
@@ -588,7 +595,7 @@ impl TypedValue {
 
         let mut trace = vec![];
         follow_return_pointers_recursive(&ptr, ptrs, &mut trace);
-        let boxed_ptr = Pointer::RetRef(trace);
+        let boxed_ptr = Pointer::RetRef(inner_inst, trace);
         TypedValue {
             ty,
             val,
@@ -603,13 +610,13 @@ impl TypedValue {
             assert!(ty.is_ref(Some(true)));
         }
         let unboxed_ptr = match ptr {
-            Pointer::RetRef(mut trace) => {
+            Pointer::RetRef(_, mut trace) => {
                 let sub = trace.pop().unwrap();
                 if cfg!(debug_assertions) {
                     assert!(trace.is_empty());
                 }
                 match sub {
-                    Pointer::ArgRef(_, original_ptr) => *original_ptr,
+                    Pointer::ArgRef(_, _, original_ptr) => *original_ptr,
                     _ => unreachable!(),
                 }
             }
@@ -805,7 +812,8 @@ impl TypedValue {
             let (self_is_mut, _) = self.ty.get_ref_type();
             assert!(self_is_mut || !is_mut);
         }
-        let field = self.ty.into_ref_struct_inst(None).fields.remove(field_num);
+        let inst = self.ty.into_ref_struct_inst(None);
+        let field = inst.fields.get(field_num).unwrap().clone();
         let val = match self.val {
             BaseValue::Struct(mut v) => v.remove(field_num),
             _ => unreachable!(),
@@ -813,7 +821,7 @@ impl TypedValue {
         TypedValue {
             ty: Type::Reference(is_mut, field.ty),
             val,
-            ptr: Pointer::RefField(local_idx, field_num),
+            ptr: Pointer::RefField(local_idx, inst, field_num),
         }
     }
 
@@ -1020,13 +1028,13 @@ impl GlobalState {
         self.accounts.get(&addr).and_then(|account| {
             account.get_resource(&key).map(|val| {
                 let ty = match is_mut_opt {
-                    None => Type::mk_struct(key),
-                    Some(is_mut) => Type::mk_ref_struct(key, is_mut),
+                    None => Type::mk_struct(key.clone()),
+                    Some(is_mut) => Type::mk_ref_struct(key.clone(), is_mut),
                 };
                 TypedValue {
                     ty,
                     val,
-                    ptr: Pointer::Global(addr),
+                    ptr: Pointer::Global(addr, key),
                 }
             })
         })

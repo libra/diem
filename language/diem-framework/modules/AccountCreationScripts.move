@@ -86,6 +86,7 @@ module AccountCreationScripts {
     }
 
     spec create_child_vasp_account {
+        use 0x1::DualAttestation;
         use 0x1::Signer;
         use 0x1::Errors;
         use 0x1::Roles;
@@ -98,6 +99,13 @@ module AccountCreationScripts {
         aborts_if child_initial_balance > max_u64() with Errors::LIMIT_EXCEEDED;
         include (child_initial_balance > 0) ==>
             DiemAccount::ExtractWithdrawCapAbortsIf{sender_addr: parent_addr};
+        include (child_initial_balance > 0) ==> DualAttestation::AssertPaymentOkAbortsIf<CoinType>{
+            payer: parent_addr,
+            payee: child_address,
+            metadata: x"",
+            metadata_signature: x"",
+            value: child_initial_balance
+        };
         include (child_initial_balance) > 0 ==>
             DiemAccount::PayFromAbortsIfRestricted<CoinType>{
                 cap: parent_cap,
@@ -121,6 +129,8 @@ module AccountCreationScripts {
             Errors::INVALID_STATE,
             Errors::INVALID_ARGUMENT;
 
+        // TODO: fix emit specs below
+        /*
         include DiemAccount::MakeAccountEmits{new_account_address: child_address};
         include child_initial_balance > 0 ==>
             DiemAccount::PayFromEmits<CoinType>{
@@ -129,13 +139,11 @@ module AccountCreationScripts {
                 amount: child_initial_balance,
                 metadata: x"",
             };
+        */
 
         /// **Access Control:**
         /// Only Parent VASP accounts can create Child VASP accounts [[A7]][ROLE].
         include Roles::AbortsIfNotParentVasp{account: parent_vasp};
-
-        /// TODO(timeout): this currently times out
-        pragma verify = false;
     }
 
     /// # Summary

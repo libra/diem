@@ -1,7 +1,7 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{ChainInfo, FullNode, HealthCheckError, LocalNode, Node, Swarm, Validator};
+use crate::{ChainInfo, FullNode, HealthCheckError, LocalNode, Node, NodeExt, Swarm, Validator};
 use anyhow::{anyhow, Result};
 use diem_config::config::NodeConfig;
 use diem_genesis_tool::validator_builder::ValidatorBuilder;
@@ -9,6 +9,7 @@ use diem_sdk::{
     crypto::ed25519::Ed25519PrivateKey,
     types::{chain_id::ChainId, AccountKey, LocalAccount, PeerId},
 };
+use itertools::Itertools;
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -192,6 +193,7 @@ impl LocalSwarm {
         // Wait for all of them to startup
         self.wait_for_startup()?;
         self.wait_for_connectivity()?;
+        self.liveness_check()?;
 
         Ok(())
     }
@@ -254,6 +256,31 @@ impl LocalSwarm {
         }
 
         Err(anyhow!("Waiting for connectivity timed out"))
+    }
+
+    fn liveness_check(&self) -> Result<()> {
+        let num_attempts = 60;
+        for i in 0..num_attempts {
+            println!("Wait for liveness check attempt: {}", i);
+
+            if self
+                .validators
+                .values()
+                .map(|node| node.liveness_check(10))
+                .collect_vec()
+                .into_iter()
+                .all(|b| match b {
+                    Ok(..) => true,
+                    _ => false,
+                })
+            {
+                return Ok(());
+            }
+
+            ::std::thread::sleep(::std::time::Duration::from_millis(1000));
+        }
+
+        Err(anyhow!("Waiting for liveness check timed out"))
     }
 }
 

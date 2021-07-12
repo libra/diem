@@ -99,8 +99,9 @@ function {:inline} $IsEqual'bool'(x: bool, y: bool): bool {
 type {:datatype} $Location;
 
 // A global resource location within the statically known resource type's memory,
-// where `a` is an address.
-function {:constructor} $Global(a: int): $Location;
+// where `a` is an address, `t` is a unique id (relative to the function being verified) that
+// represents the (maybe generic) type of the resource.
+function {:constructor} $Global(a: int, t: int): $Location;
 
 // A local location. `i` is the unique index of the local.
 function {:constructor} $Local(i: int): $Location;
@@ -141,10 +142,10 @@ function {:inline} $ChildMutation<T1, T2>(m: $Mutation T1, offset: int, v: T2): 
     $Mutation(l#$Mutation(m), ExtendVec(p#$Mutation(m), offset), v)
 }
 
-// Return true of the mutation is a parent of a child which was derived with the given edge offset. This
-// is used to implement write-back choices.
+// Return true if the mutation is a parent of a child which was derived with the given edge offset.
+// This is used to implement write-back choices.
 function {:inline} $IsParentMutation<T1, T2>(parent: $Mutation T1, edge: int, child: $Mutation T2 ): bool {
-    l#$Mutation(parent) == l#$Mutation(child) &&
+    $SameLocation(child, parent) &&
     (var pp := p#$Mutation(parent);
     (var cp := p#$Mutation(child);
     (var pl := LenVec(pp);
@@ -155,9 +156,9 @@ function {:inline} $IsParentMutation<T1, T2>(parent: $Mutation T1, edge: int, ch
     ))))
 }
 
-// Return true of the mutation is a parent of a child, for hyper edge.
+// Return true if the mutation is a parent of a child, for hyper edge.
 function {:inline} $IsParentMutationHyper<T1, T2>(parent: $Mutation T1, hyper_edge: Vec int, child: $Mutation T2 ): bool {
-    l#$Mutation(parent) == l#$Mutation(child) &&
+    $SameLocation(child, parent) &&
     (var pp := p#$Mutation(parent);
     (var cp := p#$Mutation(child);
     (var pl := LenVec(pp);
@@ -169,12 +170,41 @@ function {:inline} $IsParentMutationHyper<T1, T2>(parent: $Mutation T1, hyper_ed
     )))))
 }
 
+// Return true if the local variable is the direct parent of the child.
+// This is used to implement write-back choices.
+function {:inline} $IsParentLocal<T>(parent: int, child: $Mutation T): bool {
+    $HasLocalLocation(child, parent) && EmptyVec() == p#$Mutation(child)
+}
+
+// Return true if the local variable is an indirect parent of a child, after tracing back the edges
+function {:inline} $IsParentLocalHyper<T>(parent: int, hyper_edge: Vec int, child: $Mutation T): bool {
+    $HasLocalLocation(child, parent) && $PathMatches(p#$Mutation(child), hyper_edge)
+}
+
+// Return true if the direct parent of the child is a global location.
+// This is used to implement write-back choices.
+function {:inline} $IsParentGlobal<T>(tid: int, child: $Mutation T): bool {
+    $HasGlobalLocation(child) && $GlobalLocationTypeId(child) == tid
+}
+
+// Return true if the indirect parent of the child is a global location, after tracing back the edges.
+function {:inline} $IsParentGlobalHyper<T>(tid: int, hyper_edge: Vec int, child: $Mutation T): bool {
+    $HasGlobalLocation(child) && $GlobalLocationTypeId(child) == tid && $PathMatches(p#$Mutation(child), hyper_edge)
+}
+
 function {:inline} $EdgeMatches(edge: int, edge_pattern: int): bool {
     edge_pattern == -1 // wildcard
     || edge_pattern == edge
 }
 
-
+function {:inline} $PathMatches(ref_path: Vec int, exp_path: Vec int): bool {
+    (var rl := LenVec(ref_path);
+    (var el := LenVec(exp_path);
+    rl == el && (
+        forall i: int:: i >= 0 && i < el ==>
+            $EdgeMatches(ReadVec(ref_path, i), ReadVec(exp_path, i))
+    )))
+}
 
 function {:inline} $SameLocation<T1, T2>(m1: $Mutation T1, m2: $Mutation T2): bool {
     l#$Mutation(m1) == l#$Mutation(m2)
@@ -192,6 +222,9 @@ function {:inline} $GlobalLocationAddress<T>(m: $Mutation T): int {
     a#$Global(l#$Mutation(m))
 }
 
+function {:inline} $GlobalLocationTypeId<T>(m: $Mutation T): int {
+    t#$Global(l#$Mutation(m))
+}
 
 
 // Tests whether resource exists.

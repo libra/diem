@@ -54,6 +54,4 @@ error: data invariant does not hold
      =         <redacted> = <redacted>
      =         x_ref = <redacted>
      =     at tests/sources/functional/invariants.move:160: lifetime_invalid_S_branching
-     =     at tests/sources/functional/invariants.move:143
-     =     at tests/sources/functional/invariants.move:163: lifetime_invalid_S_branching
      =     at tests/sources/functional/invariants.move:150

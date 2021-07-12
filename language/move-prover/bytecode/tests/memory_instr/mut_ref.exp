@@ -293,6 +293,8 @@ public fun TestMutRefs::decrement_invalid($t0|x: &mut TestMutRefs::T) {
      var $t9: u64
      var $t10: u64
      var $t11: &mut u64
+     var $t12: address
+     var $t13: &mut TestMutRefs::TSum
   0: $t2 := get_field<TestMutRefs::T>.value($t0)
   1: $t3 := 1
   2: $t4 := -($t2, $t3)
@@ -305,11 +307,14 @@ public fun TestMutRefs::decrement_invalid($t0|x: &mut TestMutRefs::T) {
   9: $t9 := 1
  10: $t10 := -($t8, $t9)
  11: $t11 := borrow_field<TestMutRefs::TSum>.sum($t7)
- 12: write_ref($t11, $t10)
- 13: write_back[Reference($t7).sum]($t11)
- 14: write_back[TestMutRefs::TSum@]($t7)
- 15: trace_local[x]($t0)
- 16: return ()
+ 12: write_back[TestMutRefs::TSum@]($t7)
+ 13: write_ref($t11, $t10)
+ 14: $t12 := global_address($t11)
+ 15: $t13 := borrow_global<TestMutRefs::TSum>($t12)
+ 16: write_back[Reference($t13).sum]($t11)
+ 17: write_back[TestMutRefs::TSum@]($t13)
+ 18: trace_local[x]($t0)
+ 19: return ()
 }
 
 
@@ -323,16 +328,21 @@ public fun TestMutRefs::delete($t0|x: TestMutRefs::T) {
      var $t6: u64
      var $t7: u64
      var $t8: &mut u64
+     var $t9: address
+     var $t10: &mut TestMutRefs::TSum
   0: $t3 := 0x0
   1: $t4 := borrow_global<TestMutRefs::TSum>($t3)
   2: $t5 := unpack TestMutRefs::T($t0)
   3: $t6 := get_field<TestMutRefs::TSum>.sum($t4)
   4: $t7 := -($t6, $t5)
   5: $t8 := borrow_field<TestMutRefs::TSum>.sum($t4)
-  6: write_ref($t8, $t7)
-  7: write_back[Reference($t4).sum]($t8)
-  8: write_back[TestMutRefs::TSum@]($t4)
-  9: return ()
+  6: write_back[TestMutRefs::TSum@]($t4)
+  7: write_ref($t8, $t7)
+  8: $t9 := global_address($t8)
+  9: $t10 := borrow_global<TestMutRefs::TSum>($t9)
+ 10: write_back[Reference($t10).sum]($t8)
+ 11: write_back[TestMutRefs::TSum@]($t10)
+ 12: return ()
 }
 
 
@@ -349,6 +359,8 @@ public fun TestMutRefs::increment($t0|x: &mut TestMutRefs::T) {
      var $t9: u64
      var $t10: u64
      var $t11: &mut u64
+     var $t12: address
+     var $t13: &mut TestMutRefs::TSum
   0: $t2 := get_field<TestMutRefs::T>.value($t0)
   1: $t3 := 1
   2: $t4 := +($t2, $t3)
@@ -361,11 +373,14 @@ public fun TestMutRefs::increment($t0|x: &mut TestMutRefs::T) {
   9: $t9 := 1
  10: $t10 := +($t8, $t9)
  11: $t11 := borrow_field<TestMutRefs::TSum>.sum($t7)
- 12: write_ref($t11, $t10)
- 13: write_back[Reference($t7).sum]($t11)
- 14: write_back[TestMutRefs::TSum@]($t7)
- 15: trace_local[x]($t0)
- 16: return ()
+ 12: write_back[TestMutRefs::TSum@]($t7)
+ 13: write_ref($t11, $t10)
+ 14: $t12 := global_address($t11)
+ 15: $t13 := borrow_global<TestMutRefs::TSum>($t12)
+ 16: write_back[Reference($t13).sum]($t11)
+ 17: write_back[TestMutRefs::TSum@]($t13)
+ 18: trace_local[x]($t0)
+ 19: return ()
 }
 
 
@@ -395,16 +410,21 @@ public fun TestMutRefs::new($t0|x: u64): TestMutRefs::T {
      var $t5: u64
      var $t6: &mut u64
      var $t7: TestMutRefs::T
+     var $t8: address
+     var $t9: &mut TestMutRefs::TSum
   0: $t2 := 0x0
   1: $t3 := borrow_global<TestMutRefs::TSum>($t2)
   2: $t4 := get_field<TestMutRefs::TSum>.sum($t3)
   3: $t5 := +($t4, $t0)
   4: $t6 := borrow_field<TestMutRefs::TSum>.sum($t3)
-  5: write_ref($t6, $t5)
-  6: write_back[Reference($t3).sum]($t6)
-  7: write_back[TestMutRefs::TSum@]($t3)
-  8: $t7 := pack TestMutRefs::T($t0)
-  9: return $t7
+  5: write_back[TestMutRefs::TSum@]($t3)
+  6: write_ref($t6, $t5)
+  7: $t8 := global_address($t6)
+  8: $t9 := borrow_global<TestMutRefs::TSum>($t8)
+  9: write_back[Reference($t9).sum]($t6)
+ 10: write_back[TestMutRefs::TSum@]($t9)
+ 11: $t7 := pack TestMutRefs::T($t0)
+ 12: return $t7
 }
 
 
@@ -428,6 +448,8 @@ fun TestMutRefs::private_decrement($t0|x: &mut TestMutRefs::T) {
      var $t9: u64
      var $t10: u64
      var $t11: &mut u64
+     var $t12: address
+     var $t13: &mut TestMutRefs::TSum
   0: $t2 := get_field<TestMutRefs::T>.value($t0)
   1: $t3 := 1
   2: $t4 := -($t2, $t3)
@@ -440,11 +462,14 @@ fun TestMutRefs::private_decrement($t0|x: &mut TestMutRefs::T) {
   9: $t9 := 1
  10: $t10 := -($t8, $t9)
  11: $t11 := borrow_field<TestMutRefs::TSum>.sum($t7)
- 12: write_ref($t11, $t10)
- 13: write_back[Reference($t7).sum]($t11)
- 14: write_back[TestMutRefs::TSum@]($t7)
- 15: trace_local[x]($t0)
- 16: return ()
+ 12: write_back[TestMutRefs::TSum@]($t7)
+ 13: write_ref($t11, $t10)
+ 14: $t12 := global_address($t11)
+ 15: $t13 := borrow_global<TestMutRefs::TSum>($t12)
+ 16: write_back[Reference($t13).sum]($t11)
+ 17: write_back[TestMutRefs::TSum@]($t13)
+ 18: trace_local[x]($t0)
+ 19: return ()
 }
 
 

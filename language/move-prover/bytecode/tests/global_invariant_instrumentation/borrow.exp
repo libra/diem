@@ -37,23 +37,27 @@ public fun Test::borrow($t0|a: address) {
      var $t5: u64
      var $t6: u64
      var $t7: &mut u64
+     var $t8: address
+     var $t9: &mut Test::R
      # global invariant at tests/global_invariant_instrumentation/borrow.move:7:9+57
   0: assume forall a: TypeDomain<address>(): Gt(select Test::R.x(global<Test::R>(a)), 0)
   1: assume WellFormed($t0)
   2: assume forall $rsc: ResourceDomain<Test::R>(): WellFormed($rsc)
-  3: $t2 := borrow_global<Test::R>($t0) on_abort goto 14 with $t3
+  3: $t2 := borrow_global<Test::R>($t0) on_abort goto 16 with $t3
   4: $t4 := get_field<Test::R>.x($t2)
   5: $t5 := 1
-  6: $t6 := +($t4, $t5) on_abort goto 14 with $t3
+  6: $t6 := +($t4, $t5) on_abort goto 16 with $t3
   7: $t7 := borrow_field<Test::R>.x($t2)
   8: write_ref($t7, $t6)
-  9: write_back[Reference($t2).x]($t7)
- 10: write_back[Test::R@]($t2)
+  9: $t8 := global_address($t7)
+ 10: $t9 := borrow_global<Test::R>($t8) on_abort goto 16 with $t3
+ 11: write_back[Reference($t9).x]($t7)
+ 12: write_back[Test::R@]($t9)
      # global invariant at tests/global_invariant_instrumentation/borrow.move:7:9+57
      # VC: global memory invariant does not hold at tests/global_invariant_instrumentation/borrow.move:7:9+57
- 11: assert forall a: TypeDomain<address>(): Gt(select Test::R.x(global<Test::R>(a)), 0)
- 12: label L1
- 13: return ()
- 14: label L2
- 15: abort($t3)
+ 13: assert forall a: TypeDomain<address>(): Gt(select Test::R.x(global<Test::R>(a)), 0)
+ 14: label L1
+ 15: return ()
+ 16: label L2
+ 17: abort($t3)
 }

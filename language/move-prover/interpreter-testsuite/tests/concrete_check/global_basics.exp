@@ -2,11 +2,10 @@ Running Move unit tests
 [ PASS    ] 0x2::A::borrow_imm_err
 [ PASS    ] 0x2::A::borrow_imm_ok
 [ PASS    ] 0x2::A::borrow_mut_err
-[ PASS    ] 0x2::A::borrow_mut_ok
 [ PASS    ] 0x2::A::exists_false
 [ PASS    ] 0x2::A::exists_true
 [ PASS    ] 0x2::A::move_from_err
 [ PASS    ] 0x2::A::move_from_ok
 [ PASS    ] 0x2::A::move_to_err
 [ PASS    ] 0x2::A::move_to_ok
-Test result: OK. Total tests: 10; passed: 10; failed: 0
+Test result: OK. Total tests: 9; passed: 9; failed: 0

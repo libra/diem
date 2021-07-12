@@ -462,8 +462,7 @@ impl FunctionData {
         // Nothing to do currently.
     }
 
-    /// Fork this function data, without annotations, and mark it as the given
-    /// variant.
+    /// Fork this function data, without annotations, and mark it as the given variant.
     pub fn fork(&self, new_variant: FunctionVariant) -> Self {
         assert_ne!(self.variant, new_variant);
         FunctionData {

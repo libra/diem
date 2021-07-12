@@ -50,7 +50,7 @@ module 0x42::TestNestedInvariants {
     fun mutate() {
         let o = Outer{y: 3, n: Nested{x: 2}};
         let r = &mut o;
-        r.y = 2;
+        r.y = 2;  // temporary data invariant violation is allowed
         r.n.x = 1;
     }
 

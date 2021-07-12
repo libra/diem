@@ -154,6 +154,11 @@ pub fn module_blobs() -> &'static [Vec<u8>] {
     &MODULE_BLOBS
 }
 
+/// Diem Framework modules encoded as hex strings
+pub fn module_hex_strings() -> Vec<String> {
+    MODULE_BLOBS.iter().map(|b| hex::encode(b)).collect()
+}
+
 fn save_binary(path: &Path, binary: &[u8]) -> bool {
     if path.exists() {
         let mut bytes = vec![];

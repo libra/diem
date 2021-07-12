@@ -155,15 +155,18 @@ impl RootKeys {
 #[derive(Clone)]
 pub struct ValidatorBuilder {
     config_directory: PathBuf,
+    /// Hex-encoded bytecodes for each genesis module
+    move_modules: Vec<String>,
     num_validators: usize,
     randomize_first_validator_ports: bool,
     template: NodeConfig,
 }
 
 impl ValidatorBuilder {
-    pub fn new<T: AsRef<Path>>(config_directory: T) -> Self {
+    pub fn new<T: AsRef<Path>>(config_directory: T, move_modules: Vec<String>) -> Self {
         Self {
             config_directory: config_directory.as_ref().into(),
+            move_modules,
             num_validators: 1,
             randomize_first_validator_ports: true,
             template: NodeConfig::default_for_validator(),
@@ -210,8 +213,12 @@ impl ValidatorBuilder {
         // Build genesis
         let mut genesis_storage =
             OnDiskStorage::new(self.config_directory.join("genesis-storage.json"));
-        let (genesis, waypoint) =
-            Self::genesis_ceremony(&mut genesis_storage, &root_keys, &validators)?;
+        let (genesis, waypoint) = Self::genesis_ceremony(
+            &mut genesis_storage,
+            &root_keys,
+            &validators,
+            self.move_modules,
+        )?;
 
         // Insert Genesis and Waypoint into each validator
         for validator in &mut validators {
@@ -358,6 +365,7 @@ impl ValidatorBuilder {
         genesis_storage: &mut OnDiskStorage,
         root_keys: &RootKeys,
         validators: &[ValidatorConfig],
+        move_modules: Vec<String>,
     ) -> Result<(Transaction, Waypoint)> {
         let mut genesis_builder = GenesisBuilder::new(genesis_storage);
 
@@ -365,6 +373,7 @@ impl ValidatorBuilder {
         let layout = Layout {
             owners: validators.iter().map(|v| v.owner()).collect(),
             operators: validators.iter().map(|v| v.operator()).collect(),
+            move_modules,
             diem_root: DIEM_ROOT_NS.into(),
             treasury_compliance: DIEM_ROOT_NS.into(),
         };

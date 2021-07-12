@@ -195,12 +195,13 @@ pub mod tests {
 
         // Step 1) Define and upload the layout specifying which identities have which roles. This
         // is uploaded to the common namespace:
-        let layout_text = "\
+        let layout_text = format!("\
             operators = [\"operator_alice_shared\", \"operator_bob_shared\", \"operator_carol_shared\"]\n\
             owners = [\"alice_shared\", \"bob_shared\", \"carol_shared\"]\n\
+            move_modules = [{}]\n\
             diem_root = \"dave_shared\"\n\
             treasury_compliance = \"dave_shared\"\n\
-        ";
+        ", diem_framework::module_hex_strings().iter().map(|x| format!("\"{}\"", x)).collect::<Vec<String>>().join(", "));
 
         let temppath = diem_temppath::TempPath::new();
         temppath.create_as_file().unwrap();
@@ -305,6 +306,7 @@ pub mod tests {
         let layout_text = "\
             operators = [\"alice\", \"bob\"]\n\
             owners = [\"carol\"]\n\
+            move_modules = [\"a11ceb0b\", \"deadbeef\"]\n\
             diem_root = \"dave\"\n\
             treasury_compliance = \"other_dave\"\n\
         ";

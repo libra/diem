@@ -30,6 +30,7 @@ move-vm-runtime = { path = "../move-vm/runtime" }
 bcs = "0.1.2"
 anyhow = "1.0.38"
 clap = "2.33.3"
+hex = "0.4.3"
 log = "0.4.14"
 rayon = "1.5.0"
 sha2 = "0.9.3"

@@ -5,10 +5,16 @@
 
 //! `Nibble` represents a four-bit unsigned integer.
 
+pub mod nibble_path;
+
+use diem_crypto::HashValue;
 #[cfg(feature = "fuzzing")]
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+
+/// The hardcoded maximum height of a state merkle tree in nibbles.
+pub const ROOT_NIBBLE_HEIGHT: usize = HashValue::LENGTH * 2;
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Nibble(u8);

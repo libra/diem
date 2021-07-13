@@ -15,12 +15,11 @@ use crate::{
 };
 use anyhow::Result;
 use diem_crypto::HashValue;
-use diem_jellyfish_merkle::{
-    node_type::NodeKey, JellyfishMerkleTree, TreeReader, TreeWriter, ROOT_NIBBLE_HEIGHT,
-};
+use diem_jellyfish_merkle::{node_type::NodeKey, JellyfishMerkleTree, TreeReader, TreeWriter};
 use diem_types::{
     account_address::{AccountAddress, HashAccountAddress},
     account_state_blob::AccountStateBlob,
+    nibble::{nibble_path::NibblePath, ROOT_NIBBLE_HEIGHT},
     proof::{SparseMerkleProof, SparseMerkleRangeProof},
     transaction::Version,
 };
@@ -67,6 +66,7 @@ impl StateStore {
     pub fn put_account_state_sets(
         &self,
         account_state_sets: Vec<HashMap<AccountAddress, AccountStateBlob>>,
+        node_hashes: Option<Vec<HashMap<NibblePath, HashValue>>>,
         first_version: Version,
         cs: &mut ChangeSet,
     ) -> Result<Vec<HashValue>> {
@@ -80,8 +80,8 @@ impl StateStore {
             })
             .collect::<Vec<_>>();
 
-        let (new_root_hash_vec, tree_update_batch) =
-            JellyfishMerkleTree::new(self).put_value_sets(blob_sets, first_version)?;
+        let (new_root_hash_vec, tree_update_batch) = JellyfishMerkleTree::new(self)
+            .batch_put_value_sets(blob_sets, node_hashes, first_version)?;
 
         let num_versions = new_root_hash_vec.len();
         assert_eq!(num_versions, tree_update_batch.node_stats.len());

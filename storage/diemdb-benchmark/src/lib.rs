@@ -66,8 +66,9 @@ fn gen_txn_to_commit<R: Rng>(
     TransactionToCommit::new(
         txn,
         states,
-        vec![], /* events */
-        0,      /* gas_used */
+        HashMap::new(), /* new node hashes */
+        vec![],         /* events */
+        0,              /* gas_used */
         KeptVMStatus::Executed,
     )
 }

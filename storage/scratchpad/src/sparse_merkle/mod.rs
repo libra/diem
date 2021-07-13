@@ -88,8 +88,16 @@ use diem_crypto::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
     HashValue,
 };
-use diem_types::proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleProof};
-use std::{borrow::Borrow, cmp, collections::BTreeMap, sync::Arc};
+use diem_types::{
+    nibble::{nibble_path::NibblePath, ROOT_NIBBLE_HEIGHT},
+    proof::{SparseMerkleInternalNode, SparseMerkleLeafNode, SparseMerkleProof},
+};
+use std::{
+    borrow::Borrow,
+    cmp,
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 /// `AccountStatus` describes the result of querying an account from this SparseMerkleTree.
 #[derive(Debug, Eq, PartialEq)]
@@ -218,16 +226,109 @@ where
         &self,
         update_batch: Vec<Vec<(HashValue, &V)>>,
         proof_reader: &impl ProofRead<V>,
-    ) -> Result<(Vec<HashValue>, Self), UpdateError> {
+    ) -> Result<(Vec<(HashValue, HashMap<NibblePath, HashValue>)>, Self), UpdateError> {
         let mut current_state_tree = self.clone();
-        let mut result_hashes = Vec::with_capacity(update_batch.len());
+        let mut result = Vec::with_capacity(update_batch.len());
         for updates in update_batch {
+            let accounts = updates
+                .iter()
+                .map(|(account, _)| *account)
+                .collect::<Vec<_>>();
             current_state_tree = current_state_tree.batch_update(updates, proof_reader)?;
-            result_hashes.push(current_state_tree.root_hash());
+            result.push((
+                current_state_tree.root_hash(),
+                current_state_tree.generate_node_hashes(accounts),
+            ));
         }
-        Ok((result_hashes, current_state_tree))
+        Ok((result, current_state_tree))
     }
 
+    /// This is a helper function that compares an updated in-memory sparse merkle with the
+    /// current on-disk jellyfish sparse merkle to get the hashes of newly generated nodes.
+    pub fn generate_node_hashes(
+        &self,
+        mut touched_accounts: Vec<HashValue>,
+    ) -> HashMap<NibblePath, HashValue> {
+        touched_accounts.sort();
+
+        let mut node_hashes = HashMap::new();
+        let mut nibble_path = NibblePath::new(vec![]);
+        Self::collect_new_hashes(
+            touched_accounts.as_slice(),
+            self.root_weak(),
+            0, /* depth in nibble */
+            0, /* level within a nibble*/
+            &mut nibble_path,
+            &mut node_hashes,
+        );
+        node_hashes
+    }
+
+    /// Recursively generate the partial node update batch of jellyfish merkle
+    fn collect_new_hashes(
+        keys: &[HashValue],
+        subtree: SubTree<V>,
+        depth_in_nibble: usize,
+        level_within_nibble: usize,
+        cur_nibble_path: &mut NibblePath,
+        node_hashes: &mut HashMap<NibblePath, HashValue>,
+    ) {
+        assert!(depth_in_nibble <= ROOT_NIBBLE_HEIGHT);
+        if keys.is_empty() {
+            return;
+        }
+
+        if level_within_nibble == 0 {
+            if depth_in_nibble != 0 {
+                cur_nibble_path
+                    .push(NibblePath::new(keys[0].to_vec()).get_nibble(depth_in_nibble - 1));
+            }
+            node_hashes.insert(cur_nibble_path.clone(), subtree.hash());
+        }
+        match subtree.get_node_if_in_mem().expect("must exist").borrow() {
+            Node::Internal(internal_node) => {
+                let (next_nibble_depth, next_level_within_nibble) = if level_within_nibble == 3 {
+                    (depth_in_nibble + 1, 0)
+                } else {
+                    (depth_in_nibble, level_within_nibble + 1)
+                };
+                let pivot = partition(
+                    &keys.iter().map(|k| (*k, ())).collect::<Vec<_>>()[..],
+                    depth_in_nibble * 4 + level_within_nibble,
+                );
+                Self::collect_new_hashes(
+                    &keys[..pivot],
+                    internal_node.left.weak(),
+                    next_nibble_depth,
+                    next_level_within_nibble,
+                    cur_nibble_path,
+                    node_hashes,
+                );
+                Self::collect_new_hashes(
+                    &keys[pivot..],
+                    internal_node.right.weak(),
+                    next_nibble_depth,
+                    next_level_within_nibble,
+                    cur_nibble_path,
+                    node_hashes,
+                );
+            }
+            Node::Leaf(leaf_node) => {
+                assert_eq!(keys.len(), 1);
+                assert_eq!(keys[0], leaf_node.key);
+                matches!(leaf_node.value, LeafValue::Value(_));
+                if level_within_nibble != 0 {
+                    let mut leaf_nibble_path = cur_nibble_path.clone();
+                    leaf_nibble_path
+                        .push(NibblePath::new(keys[0].to_vec()).get_nibble(depth_in_nibble));
+                    node_hashes.insert(leaf_nibble_path, subtree.hash());
+                }
+            }
+        }
+        if level_within_nibble == 0 && depth_in_nibble != 0 {
+            cur_nibble_path.pop();
+        }
+    }
     /// Constructs a new Sparse Merkle Tree, returns the SMT root hash after each update and the
     /// final SMT root. Since the tree is immutable, existing tree remains the same and may
     /// share parts with the new, returned tree. Unlike `serial_update', intermediate trees aren't

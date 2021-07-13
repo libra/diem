@@ -9,6 +9,7 @@ use diem_types::{
     account_state_blob::AccountStateBlob,
     contract_event::ContractEvent,
     epoch_state::EpochState,
+    nibble::nibble_path::NibblePath,
     on_chain_config,
     proof::accumulator::InMemoryAccumulator,
     transaction::{TransactionStatus, Version},
@@ -25,6 +26,10 @@ pub struct TransactionData {
     /// applying relevant portion of write set on the map and serializing the updated map into a
     /// new blob.
     account_blobs: HashMap<AccountAddress, AccountStateBlob>,
+
+    /// Each entry in this map represents the the hash of a newly generated jellyfish node
+    /// and its corresponding nibble path.
+    jf_node_hashes: HashMap<NibblePath, HashValue>,
 
     /// The list of events emitted during this transaction.
     events: Vec<ContractEvent>,
@@ -48,6 +53,7 @@ pub struct TransactionData {
 impl TransactionData {
     pub fn new(
         account_blobs: HashMap<AccountAddress, AccountStateBlob>,
+        jf_node_hashes: HashMap<NibblePath, HashValue>,
         events: Vec<ContractEvent>,
         status: TransactionStatus,
         state_root_hash: HashValue,
@@ -57,6 +63,7 @@ impl TransactionData {
     ) -> Self {
         TransactionData {
             account_blobs,
+            jf_node_hashes,
             events,
             status,
             state_root_hash,
@@ -68,6 +75,10 @@ impl TransactionData {
 
     pub fn account_blobs(&self) -> &HashMap<AccountAddress, AccountStateBlob> {
         &self.account_blobs
+    }
+
+    pub fn jf_node_hashes(&self) -> &HashMap<NibblePath, HashValue> {
+        &self.jf_node_hashes
     }
 
     pub fn events(&self) -> &[ContractEvent] {

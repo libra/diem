@@ -292,7 +292,7 @@ where
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let (txn_state_roots, current_state_tree) = parent_trees
+        let (roots_with_node_hashes, current_state_tree) = parent_trees
             .state_tree()
             .serial_update(
                 txn_blobs
@@ -307,9 +307,9 @@ where
             )
             .expect("Failed to update state tree.");
 
-        for ((vm_output, txn), (state_tree_hash, blobs)) in itertools::zip_eq(
+        for ((vm_output, txn), ((state_tree_hash, new_node_hashes), blobs)) in itertools::zip_eq(
             itertools::zip_eq(vm_outputs.into_iter(), transactions.iter()).take(transaction_count),
-            itertools::zip_eq(txn_state_roots, txn_blobs),
+            itertools::zip_eq(roots_with_node_hashes, txn_blobs),
         ) {
             let event_tree = {
                 let event_hashes: Vec<_> =
@@ -353,6 +353,7 @@ where
 
             txn_data.push(TransactionData::new(
                 blobs,
+                new_node_hashes,
                 vm_output.events().to_vec(),
                 vm_output.status().clone(),
                 state_tree_hash,
@@ -368,6 +369,7 @@ where
             txn_data.resize(
                 transactions.len(),
                 TransactionData::new(
+                    HashMap::new(),
                     HashMap::new(),
                     vec![],
                     TransactionStatus::Retry,
@@ -558,6 +560,7 @@ where
             txns_to_commit.push(TransactionToCommit::new(
                 txn,
                 txn_data.account_blobs().clone(),
+                txn_data.jf_node_hashes().clone(),
                 txn_data.events().to_vec(),
                 txn_data.gas_used(),
                 recorded_status,
@@ -891,6 +894,7 @@ impl<V: VMExecutor> BlockExecutor for Executor<V> {
                 txns_to_keep.push(TransactionToCommit::new(
                     txn.clone(),
                     txn_data.account_blobs().clone(),
+                    txn_data.jf_node_hashes().clone(),
                     txn_data.events().to_vec(),
                     txn_data.gas_used(),
                     recorded_status.clone(),
@@ -945,7 +949,6 @@ impl<V: VMExecutor> BlockExecutor for Executor<V> {
 
         // Skip duplicate txns that are already persistent.
         let txns_to_commit = &txns_to_keep[num_txns_to_skip as usize..];
-
         let num_txns_to_commit = txns_to_commit.len() as u64;
         {
             let _timer = DIEM_EXECUTOR_SAVE_TRANSACTIONS_SECONDS.start_timer();
@@ -957,6 +960,7 @@ impl<V: VMExecutor> BlockExecutor for Executor<V> {
                     "Injected error in commit_blocks"
                 )))
             });
+
             self.db.writer.save_transactions(
                 txns_to_commit,
                 first_version_to_commit,

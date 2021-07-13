@@ -43,7 +43,7 @@ use proptest::{
 use proptest_derive::Arbitrary;
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     convert::TryFrom,
     iter::Iterator,
 };
@@ -825,6 +825,7 @@ impl TransactionToCommitGen {
         TransactionToCommit::new(
             Transaction::UserTransaction(transaction),
             account_states,
+            HashMap::new(),
             events,
             self.gas_used,
             self.status,

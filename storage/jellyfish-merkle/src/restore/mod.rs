@@ -8,7 +8,6 @@
 mod restore_test;
 
 use crate::{
-    nibble_path::{NibbleIterator, NibblePath},
     node_type::{
         get_child_and_sibling_half_start, Child, Children, InternalNode, LeafNode, Node, NodeKey,
     },
@@ -19,8 +18,11 @@ use diem_crypto::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
     HashValue,
 };
-use diem_nibble::Nibble;
 use diem_types::{
+    nibble::{
+        nibble_path::{NibbleIterator, NibblePath},
+        Nibble,
+    },
     proof::{SparseMerkleInternalNode, SparseMerkleRangeProof},
     transaction::Version,
 };

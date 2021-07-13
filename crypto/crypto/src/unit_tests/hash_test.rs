@@ -139,6 +139,21 @@ fn test_fmt_binary() {
 }
 
 #[test]
+fn test_get_nibble() {
+    let mut bytes = [0u8; HashValue::LENGTH];
+    let mut nibbles = vec![];
+    for byte in bytes.iter_mut().take(HashValue::LENGTH) {
+        *byte = rand::thread_rng().gen();
+        nibbles.push(*byte >> 4);
+        nibbles.push(*byte & 0x0f);
+    }
+    let hash = HashValue::new(bytes);
+    for (i, nibble) in nibbles.iter().enumerate().take(HashValue::LENGTH * 2) {
+        assert_eq!(hash.nibble(i), *nibble);
+    }
+}
+
+#[test]
 fn test_common_prefix_bits_len() {
     {
         let hash1 = b"hello".test_only_hash();

@@ -24,6 +24,7 @@ fn put_account_state_set(
     let root = store
         .put_account_state_sets(
             vec![account_state_set.into_iter().collect::<HashMap<_, _>>()],
+            None,
             version,
             &mut cs,
         )
@@ -368,7 +369,7 @@ fn init_store(store: &StateStore, input: impl Iterator<Item = (AccountAddress, A
         let mut cs = ChangeSet::new();
         let account_state_set: HashMap<_, _> = std::iter::once((key, value)).collect();
         store
-            .put_account_state_sets(vec![account_state_set], i as Version, &mut cs)
+            .put_account_state_sets(vec![account_state_set], None, i as Version, &mut cs)
             .unwrap();
         store.db.write_schemas(cs.batch).unwrap();
     }

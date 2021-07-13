@@ -212,6 +212,14 @@ impl HashValue {
         (self.hash[pos] >> bit) & 1 != 0
     }
 
+    /// Returns the `index`-th nibble in the bytes.
+    pub fn nibble(&self, index: usize) -> u8 {
+        assume!(index < Self::LENGTH * 2); // assumed precondition
+        let pos = index / 2;
+        let shift = if index % 2 == 0 { 4 } else { 0 };
+        (self.hash[pos] >> shift) & 0x0f
+    }
+
     /// Returns a `HashValueBitIterator` over all the bits that represent this `HashValue`.
     pub fn iter_bits(&self) -> HashValueBitIterator<'_> {
         HashValueBitIterator::new(self)

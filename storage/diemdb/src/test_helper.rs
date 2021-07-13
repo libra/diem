@@ -33,6 +33,7 @@ fn to_blocks_to_commit(
                 let txn_hash = txn_to_commit.transaction().hash();
                 let state_root_hash = db.state_store.put_account_state_sets(
                     vec![txn_to_commit.account_states().clone()],
+                    None,
                     cur_ver,
                     &mut cs,
                 )?[0];

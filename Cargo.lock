@@ -1885,9 +1885,9 @@ dependencies = [
  "diem-crypto-derive",
  "diem-infallible",
  "diem-metrics",
- "diem-nibble",
  "diem-types",
  "diem-workspace-hack",
+ "itertools 0.10.0",
  "mirai-annotations",
  "num-derive",
  "num-traits",
@@ -2150,15 +2150,6 @@ dependencies = [
  "rand 0.8.3",
  "serde",
  "thiserror",
-]
-
-[[package]]
-name = "diem-nibble"
-version = "0.1.0"
-dependencies = [
- "diem-workspace-hack",
- "proptest",
- "serde",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ pub mod ledger_info;
 pub mod mempool_status;
 pub mod move_resource;
 pub mod network_address;
+pub mod nibble;
 pub mod on_chain_config;
 pub mod proof;
 #[cfg(any(test, feature = "fuzzing"))]

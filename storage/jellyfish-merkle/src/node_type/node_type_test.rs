@@ -5,13 +5,13 @@ use super::{
     deserialize_u64_varint, serialize_u64_varint, Child, Children, InternalNode, NodeDecodeError,
     NodeKey,
 };
-use crate::{nibble_path::NibblePath, test_helper::ValueBlob};
+use crate::test_helper::ValueBlob;
 use diem_crypto::{
     hash::{CryptoHash, SPARSE_MERKLE_PLACEHOLDER_HASH},
     HashValue,
 };
-use diem_nibble::Nibble;
 use diem_types::{
+    nibble::{nibble_path::NibblePath, Nibble},
     proof::{SparseMerkleInternalNode, SparseMerkleLeafNode},
     transaction::Version,
 };

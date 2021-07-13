@@ -74,17 +74,20 @@ impl SafetyRulesManager {
                 storage,
                 verify_vote_proposal_signature,
                 export_consensus_key,
+                config.decoupled_execution,
             ),
             SafetyRulesService::Serializer => Self::new_serializer(
                 storage,
                 verify_vote_proposal_signature,
                 export_consensus_key,
+                config.decoupled_execution,
             ),
             SafetyRulesService::Thread => Self::new_thread(
                 storage,
                 verify_vote_proposal_signature,
                 export_consensus_key,
                 config.network_timeout_ms,
+                config.decoupled_execution,
             ),
             _ => panic!("Unimplemented SafetyRulesService: {:?}", config.service),
         }
@@ -94,11 +97,13 @@ impl SafetyRulesManager {
         storage: PersistentSafetyStorage,
         verify_vote_proposal_signature: bool,
         export_consensus_key: bool,
+        decoupled_execution: bool,
     ) -> Self {
         let safety_rules = SafetyRules::new(
             storage,
             verify_vote_proposal_signature,
             export_consensus_key,
+            decoupled_execution,
         );
         Self {
             internal_safety_rules: SafetyRulesWrapper::Local(Arc::new(RwLock::new(safety_rules))),
@@ -116,11 +121,13 @@ impl SafetyRulesManager {
         storage: PersistentSafetyStorage,
         verify_vote_proposal_signature: bool,
         export_consensus_key: bool,
+        decoupled_execution: bool,
     ) -> Self {
         let safety_rules = SafetyRules::new(
             storage,
             verify_vote_proposal_signature,
             export_consensus_key,
+            decoupled_execution,
         );
         let serializer_service = SerializerService::new(safety_rules);
         Self {
@@ -135,12 +142,14 @@ impl SafetyRulesManager {
         verify_vote_proposal_signature: bool,
         export_consensus_key: bool,
         timeout_ms: u64,
+        decoupled_execution: bool,
     ) -> Self {
         let thread = ThreadService::new(
             storage,
             verify_vote_proposal_signature,
             export_consensus_key,
             timeout_ms,
+            decoupled_execution,
         );
         Self {
             internal_safety_rules: SafetyRulesWrapper::Thread(thread),

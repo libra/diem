@@ -11,7 +11,10 @@ use crate::{
     util::time_service::ClockTimeService,
 };
 use channel::{self, diem_channel, message_queues::QueueStyle};
-use consensus_types::common::{Author, Payload, Round};
+use consensus_types::{
+    common::{Author, Payload, Round},
+    executed_block::ExecutedBlock,
+};
 use diem_config::{
     config::{
         ConsensusProposerType::{self, RoundProposer},
@@ -20,6 +23,7 @@ use diem_config::{
     generator::{self, ValidatorSwarm},
 };
 use diem_mempool::mocks::MockSharedMempool;
+use diem_metrics::IntGauge;
 use diem_types::{
     ledger_info::LedgerInfoWithSignatures,
     on_chain_config::{OnChainConfig, OnChainConfigPayload, ValidatorSet},
@@ -99,6 +103,14 @@ impl SMRNode {
             .build()
             .unwrap();
 
+        let guage_c = IntGauge::new(
+            "D_COM_CHANNEL_COUNTER",
+            "counter for the decoupling committing channel",
+        )
+        .unwrap();
+        let (_, receiver_comm) =
+            channel::new::<(Vec<ExecutedBlock>, LedgerInfoWithSignatures)>(30, &guage_c);
+
         let time_service = Arc::new(ClockTimeService::new(runtime.handle().clone()));
 
         let (timeout_sender, timeout_receiver) =
@@ -112,14 +124,15 @@ impl SMRNode {
             network_sender,
             timeout_sender,
             txn_manager,
-            state_computer,
+            state_computer.clone(),
             storage.clone(),
             reconfig_events,
+            state_computer,
         );
         let (network_task, network_receiver) = NetworkTask::new(network_events, self_receiver);
 
         runtime.spawn(network_task.start());
-        runtime.spawn(epoch_mgr.start(timeout_receiver, network_receiver));
+        runtime.spawn(epoch_mgr.start(timeout_receiver, network_receiver, receiver_comm));
         Self {
             id: twin_id,
             _runtime: runtime,

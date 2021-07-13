@@ -66,7 +66,7 @@ fn in_memory(n: u64) {
         waypoint,
         true,
     );
-    let safety_rules_manager = SafetyRulesManager::new_local(storage, false, false);
+    let safety_rules_manager = SafetyRulesManager::new_local(storage, false, false, false);
     lsr(safety_rules_manager.client(), signer, n);
 }
 
@@ -82,7 +82,7 @@ fn on_disk(n: u64) {
         waypoint,
         true,
     );
-    let safety_rules_manager = SafetyRulesManager::new_local(storage, false, false);
+    let safety_rules_manager = SafetyRulesManager::new_local(storage, false, false, false);
     lsr(safety_rules_manager.client(), signer, n);
 }
 
@@ -98,7 +98,7 @@ fn serializer(n: u64) {
         waypoint,
         true,
     );
-    let safety_rules_manager = SafetyRulesManager::new_serializer(storage, false, false);
+    let safety_rules_manager = SafetyRulesManager::new_serializer(storage, false, false, false);
     lsr(safety_rules_manager.client(), signer, n);
 }
 
@@ -116,7 +116,8 @@ fn thread(n: u64) {
     );
     // Test value, in milliseconds
     let timeout_ms = 5_000;
-    let safety_rules_manager = SafetyRulesManager::new_thread(storage, false, false, timeout_ms);
+    let safety_rules_manager =
+        SafetyRulesManager::new_thread(storage, false, false, timeout_ms, false);
     lsr(safety_rules_manager.client(), signer, n);
 }
 
@@ -137,7 +138,8 @@ fn vault(n: u64) {
     );
     // Test value in milliseconds.
     let timeout_ms = 5_000;
-    let safety_rules_manager = SafetyRulesManager::new_thread(storage, false, false, timeout_ms);
+    let safety_rules_manager =
+        SafetyRulesManager::new_thread(storage, false, false, timeout_ms, false);
     lsr(safety_rules_manager.client(), signer, n);
 }
 

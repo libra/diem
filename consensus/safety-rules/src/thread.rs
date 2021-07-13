@@ -31,6 +31,7 @@ impl ThreadService {
         verify_vote_proposal_signature: bool,
         export_consensus_key: bool,
         timeout: u64,
+        decoupled_execution: bool,
     ) -> Self {
         let listen_port = utils::get_available_port();
         let listen_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), listen_port);
@@ -43,6 +44,7 @@ impl ThreadService {
                 verify_vote_proposal_signature,
                 export_consensus_key,
                 timeout,
+                decoupled_execution,
             )
         });
 

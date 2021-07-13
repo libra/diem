@@ -119,9 +119,11 @@ impl NetworkSender {
     pub async fn broadcast(&mut self, msg: ConsensusMsg) {
         // Directly send the message to ourself without going through network.
         let self_msg = Event::Message(self.author, msg.clone());
+
         if let Err(err) = self.self_sender.send(self_msg).await {
             error!("Error broadcasting to self: {:?}", err);
         }
+        debug!("broadcasted");
 
         // Get the list of validators excluding our own account address. Note the
         // ordering is not important in this case.

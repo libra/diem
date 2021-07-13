@@ -30,7 +30,7 @@ impl Display for CommitVote {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
-            "CommitProposal: [author: {}, {}]",
+            "CommitVote: [author: {}, {}]",
             self.author.short_str(),
             self.ledger_info
         )
@@ -61,12 +61,12 @@ impl CommitVote {
         }
     }
 
-    /// Return the author of the commit proposal
+    /// Return the author of the commit vote
     pub fn author(&self) -> Author {
         self.author
     }
 
-    /// Return the LedgerInfo associated with this commit proposal
+    /// Return the LedgerInfo associated with this commit vote
     pub fn ledger_info(&self) -> &LedgerInfo {
         &self.ledger_info
     }
@@ -84,11 +84,11 @@ impl CommitVote {
         self.ledger_info.epoch()
     }
 
-    /// Verifies that the consensus data hash of LedgerInfo corresponds to the commit proposal,
+    /// Verifies that the consensus data hash of LedgerInfo corresponds to the commit vote,
     /// and then verifies the signature.
     pub fn verify(&self, validator: &ValidatorVerifier) -> anyhow::Result<()> {
         validator
             .verify(self.author(), &self.ledger_info, &self.signature)
-            .context("Failed to verify Commit Proposal")
+            .context("Failed to verify Commit Vote")
     }
 }

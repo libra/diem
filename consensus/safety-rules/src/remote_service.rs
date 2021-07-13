@@ -33,11 +33,13 @@ pub fn execute(
     verify_vote_proposal_signature: bool,
     export_consensus_key: bool,
     network_timeout_ms: u64,
+    decoupled_execution: bool,
 ) {
     let mut safety_rules = SafetyRules::new(
         storage,
         verify_vote_proposal_signature,
         export_consensus_key,
+        decoupled_execution,
     );
     if let Err(e) = safety_rules.consensus_state() {
         warn!("Unable to print consensus state: {}", e);

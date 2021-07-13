@@ -13,9 +13,10 @@ use regex::Regex;
 use std::{
     process::Output,
     sync::{
-        mpsc::{channel, Sender},
+        mpsc::{channel, RecvTimeoutError, Sender},
         Arc,
     },
+    time::Duration,
 };
 use tokio::{
     process::Command,
@@ -42,6 +43,9 @@ pub trait ProverTask {
 
     /// Returns whether the task result is considered successful.
     fn is_success(&self, task_result: &Self::TaskResult) -> bool;
+
+    /// Returns a task result used for representing a hard timeout
+    fn make_timeout(&self) -> (Self::TaskId, Self::TaskResult);
 }
 
 pub struct ProverTaskRunner();
@@ -53,6 +57,7 @@ impl ProverTaskRunner {
         mut task: T,
         num_instances: usize,
         sequential: bool,
+        hard_timeout_secs: u64,
     ) -> (T::TaskId, T::TaskResult)
     where
         T: ProverTask + Clone + Send + 'static,
@@ -89,18 +94,35 @@ impl ProverTaskRunner {
         // Listens until one of the workers finishes.
         loop {
             // Result received from one worker.
-            let res = master_rx.recv();
-            if let Ok((task_id, result)) = res {
-                if num_working_instances == 1 {
-                    return (task_id, result);
-                } else if task.is_success(&result) {
-                    // Result is successful. Broadcast to other workers
-                    // so they can stop working.
-                    let _ = master_tx.send(BroadcastMsg::Stop);
-                    return (task_id, result);
+            let timeout = Duration::from_secs(if hard_timeout_secs > 0 {
+                hard_timeout_secs
+            } else {
+                u64::MAX
+            });
+            let res = master_rx.recv_timeout(timeout);
+            match res {
+                Ok((task_id, result)) => {
+                    if num_working_instances == 1 {
+                        return (task_id, result);
+                    } else if task.is_success(&result) {
+                        // Result is successful. Broadcast to other workers
+                        // so they can stop working.
+                        let _ = master_tx.send(BroadcastMsg::Stop);
+                        return (task_id, result);
+                    }
+                    debug!("previous instance failed, waiting for another worker to report...");
+                    num_working_instances = usize::saturating_add(num_working_instances, 1);
                 }
-                debug! {"previous instance failed, waiting for another worker to report..."}
-                num_working_instances = usize::saturating_add(num_working_instances, 1);
+                Err(RecvTimeoutError::Timeout) => {
+                    // recv timeout, i.e. boogie/underlying solver is hanging
+                    let _ = master_tx.send(BroadcastMsg::Stop);
+                    debug!(
+                        "prover task exceeded hard timeout of {}s",
+                        hard_timeout_secs
+                    );
+                    return task.make_timeout();
+                }
+                _ => {}
             }
         }
     }
@@ -181,6 +203,10 @@ impl ProverTask for RunBoogieWithSeeds {
             }
             Err(_) => true, // Count this as success so we terminate everything else
         }
+    }
+
+    fn make_timeout(&self) -> (Self::TaskId, Self::TaskResult) {
+        (0, Err(std::io::Error::from(std::io::ErrorKind::TimedOut)))
     }
 }
 

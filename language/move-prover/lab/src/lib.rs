@@ -4,4 +4,5 @@
 #![forbid(unsafe_code)]
 
 pub mod benchmark;
+pub mod plot;
 pub mod z3log;

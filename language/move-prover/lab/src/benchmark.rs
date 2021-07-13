@@ -1,8 +1,8 @@
 // Copyright (c) The Diem Core Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Functions for running benchmarks and storing the results as files, and for reading
-// those results and plotting them.
+// Functions for running benchmarks and storing the results as files, as well as reading
+// benchmark data back into memory.
 
 use anyhow::anyhow;
 use bytecode::options::ProverOptions;
@@ -17,17 +17,8 @@ use move_model::{
 use move_prover::{
     check_errors, cli::Options, create_and_process_bytecode, generate_boogie, verify_boogie,
 };
-use plotters::{
-    coord::types::RangedCoordu32,
-    evcxr::{evcxr_figure, SVGWrapper},
-    prelude::{
-        Cartesian2d, IntoFont, RGBColor, Rectangle, ShapeStyle, Text, BLACK, BLUE, CYAN, GREEN,
-        MAGENTA, RED, WHITE, YELLOW,
-    },
-};
 use std::{
-    collections::BTreeMap,
-    fmt::{Debug, Formatter},
+    fmt::Debug,
     fs::File,
     io::{LineWriter, Write},
     path::PathBuf,
@@ -35,7 +26,7 @@ use std::{
 };
 
 // ============================================================================================
-// Running benchmarks
+// Command line interface for running a benchmark
 
 struct Runner {
     options: Options,
@@ -139,6 +130,12 @@ fn run_benchmark(
     } else {
         Options::default()
     };
+
+    // Do not allow any benchmark to run longer than 100s. If this is exceeded it usually
+    // indicates a bug in boogie or the solver, because we already propagate soft timeouts, but
+    // they are ignored.
+    options.backend.hard_timeout_secs = 100;
+
     options.verbosity_level = LevelFilter::Warn;
     options.backend.proc_cores = 1;
     options.backend.derive_options();
@@ -274,15 +271,7 @@ impl Runner {
 }
 
 // ============================================================================================
-// Analyzing and plotting benchmarks
-
-pub const LIGHT_GRAY: RGBColor = RGBColor(0xb4, 0xb4, 0xb4);
-pub const MEDIUM_GRAY: RGBColor = RGBColor(0x90, 0x90, 0x90);
-pub const GRAY: RGBColor = RGBColor(0x63, 0x63, 0x63);
-pub const DARK_GRAY: RGBColor = RGBColor(0x49, 0x48, 0x48);
-
-pub const GRAY_PALETTE: &[&RGBColor] = &[&LIGHT_GRAY, &MEDIUM_GRAY, &GRAY, &DARK_GRAY, &BLACK];
-pub const COLOR_PALETTE: &[&RGBColor] = &[&GREEN, &BLUE, &RED, &CYAN, &YELLOW, &MAGENTA];
+// Reading and manipulating benchmark data
 
 /// Represents a benchmark.
 #[derive(Clone, Debug)]
@@ -358,20 +347,9 @@ impl Benchmark {
     }
 }
 
-/// A wrapper around a string for text display.
-pub struct Display(String);
-
-/// Implement Debug (evcxr's way to print outputs) _without_ quotes as is the default for
-/// String. That's the whole purpose of this wrapper.
-impl Debug for Display {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}", self.0)
-    }
-}
-
 /// Print statistics for the given set of benchmarks.
 /// TODO: would be nice to have a histogram instead of textual output.
-pub fn stats_benchmarks(benchmarks: &[&Benchmark]) -> Display {
+pub fn stats_benchmarks(benchmarks: &[&Benchmark]) -> String {
     let baseline = benchmarks[0].sum() as f32 / 1000.0;
     let mut res = String::new();
     let config_width = benchmarks.iter().map(|b| b.config.len()).max().unwrap();
@@ -387,128 +365,5 @@ pub fn stats_benchmarks(benchmarks: &[&Benchmark]) -> Display {
             width = config_width,
         );
     }
-    Display(res)
-}
-
-/// Plot a set of benchmarks in JupyterLab.
-/// TODO: we should pull this apart into multiple functions and also let the plotting work
-///   against different backends. This is just a first experiment to see what is possible.
-pub fn plot_benchmarks(benchmarks: &[&Benchmark]) -> SVGWrapper {
-    #[derive(Clone, Copy)]
-    enum Result {
-        Duration(usize),
-        Error(usize),
-        Timeout,
-    }
-    // Join matching samples over all benchmarks. This maps from sample name
-    // to a pair of configuration and duration, or whether its a timeout or an error.
-    let mut joined: BTreeMap<&str, Vec<(&str, Result)>> = BTreeMap::new();
-    for Benchmark { config, data } in benchmarks {
-        for BenchmarkData {
-            name,
-            duration,
-            status,
-        } in data
-        {
-            match status.as_str() {
-                "ok" => joined
-                    .entry(name)
-                    .or_default()
-                    .push((config, Result::Duration(*duration))),
-                "timeout" => joined
-                    .entry(name)
-                    .or_default()
-                    .push((config, Result::Timeout)),
-                _ => joined
-                    .entry(name)
-                    .or_default()
-                    .push((config, Result::Error(*duration))),
-            }
-        }
-    }
-
-    // Rearrange samples in order of first benchmark.
-    let joined = benchmarks[0]
-        .data
-        .iter()
-        .map(|d| (d.name.as_str(), joined.get(d.name.as_str()).unwrap()))
-        .collect_vec();
-
-    // Compute maximal duration and data points, for correct scaling.
-    let data_points = joined.len() as u32;
-    let max_duration = joined
-        .iter()
-        .map(|(_, e)| e.iter().map(|(_, d)| *d))
-        .flatten()
-        .filter_map(|r| {
-            if let Result::Duration(d) | Result::Error(d) = r {
-                Some(d)
-            } else {
-                None
-            }
-        })
-        .max()
-        .unwrap_or(0) as u32;
-
-    // We are drawing data points as horizontal bars, therefore x-axis is max_duration
-    // and y-axis datapoints.
-    let real_x = 1000u32;
-    let real_y = data_points * 60u32;
-    evcxr_figure((real_x, real_y), |root| {
-        let duration_percent = |p: usize| ((max_duration as f64) * (p as f64) / 100f64) as u32;
-        let bar = |y: u32, w: u32, style| Rectangle::new([(0, y + 1), (w, y + 8)], style);
-        let label = |s: &str, x: u32, y: u32, h| {
-            Text::new(s.to_string(), (x, y), ("sans-serif", h).into_font())
-        };
-        let filled_shape = |i: usize| ShapeStyle::from(GRAY_PALETTE[i]).filled();
-        let stroke_shape =
-            |i: usize| ShapeStyle::from(GRAY_PALETTE[i]).stroke_width(duration_percent(1));
-
-        let root = root.apply_coord_spec(Cartesian2d::<RangedCoordu32, RangedCoordu32>::new(
-            0..max_duration + duration_percent(10), // + 10% for label
-            0..(data_points + 1) * ((1 + benchmarks.len() as u32) * 10),
-            (0..real_x as i32, 0..real_y as i32),
-        ));
-        root.fill(&WHITE)?;
-        let mut ycoord = 0;
-
-        // Draw legend
-        for (i, benchmark) in benchmarks.iter().enumerate() {
-            root.draw(&bar(ycoord, duration_percent(5), filled_shape(i)))?;
-            root.draw(&label(
-                &format!("= {}", benchmark.config),
-                duration_percent(6),
-                ycoord + 2,
-                15.0,
-            ))?;
-            ycoord += 10;
-        }
-        ycoord += 10;
-        // Draw samples.
-        for (sample, variants) in joined {
-            root.draw(&label(sample, 0, ycoord, 15.0))?;
-            ycoord += 7;
-            for (i, (_, result)) in variants.iter().enumerate() {
-                let (weight, note, style) = match result {
-                    Result::Duration(d) => (
-                        *d as u32,
-                        format!("{:.3}", (*d as f64) / 1000f64),
-                        filled_shape(i),
-                    ),
-                    Result::Timeout => (max_duration, "timeout".to_string(), stroke_shape(i)),
-                    Result::Error(d) => (*d as u32, "error".to_string(), filled_shape(i)),
-                };
-                root.draw(&bar(ycoord, weight, style))?;
-                root.draw(&label(
-                    &note,
-                    weight + duration_percent(1),
-                    ycoord + 2,
-                    13.0,
-                ))?;
-                ycoord += 10;
-            }
-            ycoord += 3;
-        }
-        Ok(())
-    })
+    res
 }

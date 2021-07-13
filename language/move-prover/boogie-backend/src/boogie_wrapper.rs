@@ -122,13 +122,33 @@ impl<'env> BoogieWrapper<'env> {
             task,
             self.options.num_instances,
             self.options.sequential_task,
+            self.options.hard_timeout_secs,
         );
         let output = match output_res {
-            Err(err) => panic!(
-                "cannot execute boogie `{}`: {}",
-                self.options.get_boogie_command("")[0],
-                err
-            ),
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::TimedOut {
+                    let err = BoogieError {
+                        kind: BoogieErrorKind::Internal,
+                        loc: self.env.unknown_loc(),
+                        message: format!(
+                            "Boogie execution exceeded hard timeout of {}s",
+                            self.options.hard_timeout_secs
+                        ),
+                        execution_trace: vec![],
+                        model: None,
+                    };
+                    return Ok(BoogieOutput {
+                        errors: vec![err],
+                        all_output: "".to_string(),
+                    });
+                } else {
+                    panic!(
+                        "cannot execute boogie `{}`: {}",
+                        self.options.get_boogie_command("")[0],
+                        err
+                    )
+                }
+            }
             Ok(out) => out,
         };
         if self.options.num_instances > 1 {

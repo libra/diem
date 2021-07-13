@@ -1,0 +1,8 @@
+error[E01002]: unexpected token
+  ┌─ tests/move_check/parser/phantom_param_invalid_keyword.move:2:25
+  │
+2 │     struct S<T1, phatom T2> {
+  │             -           ^ Expected '>'
+  │             │            
+  │             To match this '<'
+

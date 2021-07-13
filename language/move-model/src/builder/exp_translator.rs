@@ -402,14 +402,14 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
 
     /// Analyzes the sequence of type parameters as they are provided via the source AST and enters
     /// them into the environment. Returns a vector for representing them in the target AST.
-    pub fn analyze_and_add_type_params<T>(
-        &mut self,
-        type_params: &[(Name, T)],
-    ) -> Vec<(Symbol, Type)> {
+    pub fn analyze_and_add_type_params<'a, I>(&mut self, type_params: I) -> Vec<(Symbol, Type)>
+    where
+        I: IntoIterator<Item = &'a Name>,
+    {
         type_params
-            .iter()
+            .into_iter()
             .enumerate()
-            .map(|(i, (n, _))| {
+            .map(|(i, n)| {
                 let ty = Type::TypeParameter(i as u16);
                 let sym = self.symbol_pool().make(n.value.as_str());
                 self.define_type_param(&self.to_loc(&n.loc), sym, ty.clone());

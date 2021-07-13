@@ -66,8 +66,14 @@ pub struct ModuleDefinition {
 pub struct StructDefinition {
     pub attributes: Vec<Attribute>,
     pub abilities: AbilitySet,
-    pub type_parameters: Vec<TParam>,
+    pub type_parameters: Vec<StructTypeParameter>,
     pub fields: StructFields,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct StructTypeParameter {
+    pub param: TParam,
+    pub is_phantom: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -719,6 +725,16 @@ impl AstDebug for Vec<TParam> {
     }
 }
 
+impl AstDebug for Vec<StructTypeParameter> {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        if !self.is_empty() {
+            w.write("<");
+            w.comma(self, |w, tp| tp.ast_debug(w));
+            w.write(">")
+        }
+    }
+}
+
 impl AstDebug for (ConstantName, &Constant) {
     fn ast_debug(&self, w: &mut AstWriter) {
         let (
@@ -764,6 +780,15 @@ impl AstDebug for TParam {
         } = self;
         w.write(&format!("{}#{}", user_specified_name, id.0));
         ability_constraints_ast_debug(w, abilities);
+    }
+}
+
+impl AstDebug for StructTypeParameter {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        if self.is_phantom {
+            w.write("phantom ");
+        }
+        self.param.ast_debug(w);
     }
 }
 

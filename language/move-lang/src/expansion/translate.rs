@@ -863,7 +863,7 @@ fn struct_def_(
     } = pstruct;
     let attributes = flatten_attributes(context, attributes);
     let old_aliases = context.new_alias_scope(AliasMap::new());
-    let type_parameters = type_parameters(context, pty_params);
+    let type_parameters = struct_type_parameters(context, pty_params);
     let abilities = ability_set(context, "modifier", abilities_vec);
     let fields = struct_fields(context, &name, pfields);
     let sdef = E::StructDefinition {
@@ -1042,7 +1042,7 @@ fn function_signature(
         parameters: pparams,
         return_type: pret_ty,
     } = psignature;
-    let type_parameters = type_parameters(context, pty_params);
+    let type_parameters = fun_type_parameters(context, pty_params);
     let parameters = pparams
         .into_iter()
         .map(|(v, t)| (v, type_(context, t)))
@@ -1118,7 +1118,7 @@ fn spec_target(context: &mut Context, sp!(loc, pt): P::SpecBlockTarget) -> E::Sp
         PT::Module => ET::Module,
         PT::Schema(name, type_params) => {
             let old_aliases = context.new_alias_scope(AliasMap::new());
-            let target = ET::Schema(name, type_parameters(context, type_params));
+            let target = ET::Schema(name, fun_type_parameters(context, type_params));
             context.set_to_outer_scope(old_aliases);
             target
         }
@@ -1185,7 +1185,7 @@ fn spec_member(context: &mut Context, sp!(loc, pm): P::SpecBlockMember) -> E::Sp
             type_: t,
         } => {
             let old_aliases = context.new_alias_scope(AliasMap::new());
-            let type_parameters = type_parameters(context, pty_params);
+            let type_parameters = fun_type_parameters(context, pty_params);
             let t = type_(context, t);
             context.set_to_outer_scope(old_aliases);
             EM::Variable {
@@ -1279,7 +1279,7 @@ fn ability_set(context: &mut Context, case: &str, abilities_vec: Vec<Ability>) -
     set
 }
 
-fn type_parameters(
+fn fun_type_parameters(
     context: &mut Context,
     pty_params: Vec<(Name, Vec<Ability>)>,
 ) -> Vec<(Name, E::AbilitySet)> {
@@ -1293,6 +1293,27 @@ fn type_parameters(
             context.aliases.remove_member_alias(&name);
             let constraints = ability_set(context, "constraint", constraints_vec);
             (name, constraints)
+        })
+        .collect()
+}
+
+fn struct_type_parameters(
+    context: &mut Context,
+    pty_params: Vec<P::StructTypeParameter>,
+) -> Vec<E::StructTypeParameter> {
+    assert!(
+        context.aliases.current_scope_is_empty(),
+        "ICE alias scope should be cleared before handling type parameters"
+    );
+    pty_params
+        .into_iter()
+        .map(|param| {
+            context.aliases.remove_member_alias(&param.name);
+            E::StructTypeParameter {
+                is_phantom: param.is_phantom,
+                name: param.name,
+                constraints: ability_set(context, "constraint", param.constraints),
+            }
         })
         .collect()
 }

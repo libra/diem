@@ -10,8 +10,8 @@ use crate::{
     },
     expansion::ast::{AbilitySet, ModuleIdent},
     naming::ast::{
-        self as N, BuiltinTypeName_, FunctionSignature, StructDefinition, TParam, TParamID, TVar,
-        Type, TypeName, TypeName_, Type_,
+        self as N, BuiltinTypeName_, FunctionSignature, StructDefinition, StructTypeParameter,
+        TParam, TParamID, TVar, Type, TypeName, TypeName_, Type_,
     },
     parser::ast::{Ability_, ConstantName, Field, FunctionName, StructName, Var, Visibility},
     shared::{unique_map::UniqueMap, *},
@@ -351,7 +351,7 @@ impl<'env> Context<'env> {
             .expect("ICE should have failed in naming")
     }
 
-    fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> &Vec<TParam> {
+    pub fn struct_tparams(&self, m: &ModuleIdent, n: &StructName) -> &Vec<StructTypeParameter> {
         &self.struct_definition(m, n).type_parameters
     }
 
@@ -551,10 +551,19 @@ pub fn infer_abilities(context: &Context, subst: &Subst, ty: Type) -> AbilitySet
         T::UnresolvedError | T::Anything => AbilitySet::all(loc),
         T::Param(TParam { abilities, .. }) | T::Apply(Some(abilities), _, _) => abilities,
         T::Apply(None, n, ty_args) => {
-            let declared_abilities = match &n.value {
-                TypeName_::Multiple(_) => AbilitySet::collection(loc),
-                TypeName_::Builtin(b) => b.value.declared_abilities(b.loc),
-                TypeName_::ModuleType(m, n) => context.struct_declared_abilities(&m, &n).clone(),
+            let (declared_abilities, ty_args) = match &n.value {
+                TypeName_::Multiple(_) => (AbilitySet::collection(loc), ty_args),
+                TypeName_::Builtin(b) => (b.value.declared_abilities(b.loc), ty_args),
+                TypeName_::ModuleType(m, n) => {
+                    let declared_abilities = context.struct_declared_abilities(&m, &n).clone();
+                    let non_phantom_ty_args = ty_args
+                        .into_iter()
+                        .zip(context.struct_tparams(&m, &n))
+                        .filter(|(_, param)| !param.is_phantom)
+                        .map(|(arg, _)| arg)
+                        .collect::<Vec<_>>();
+                    (declared_abilities, non_phantom_ty_args)
+                }
             };
             let ty_args_abilities = ty_args
                 .into_iter()
@@ -628,7 +637,7 @@ pub fn make_struct_type(
             let constraints = sdef
                 .type_parameters
                 .iter()
-                .map(|tp| (loc, tp.abilities.clone()))
+                .map(|tp| (loc, tp.param.abilities.clone()))
                 .collect();
             let ty_args = make_tparams(context, loc, TVarCase::Base, constraints);
             (sp(loc, Type_::Apply(None, tn, ty_args.clone())), ty_args)
@@ -672,8 +681,14 @@ pub fn make_field_types(
     ty_args: Vec<Type>,
 ) -> N::StructFields {
     let sdef = context.struct_definition(m, n);
-    let tparam_subst =
-        &make_tparam_subst(&context.struct_definition(m, n).type_parameters, ty_args);
+    let tparam_subst = &make_tparam_subst(
+        context
+            .struct_definition(m, n)
+            .type_parameters
+            .iter()
+            .map(|tp| &tp.param),
+        ty_args,
+    );
     match &sdef.fields {
         N::StructFields::Native(loc) => N::StructFields::Native(*loc),
         N::StructFields::Defined(m) => {
@@ -716,8 +731,14 @@ pub fn make_field_type(
             context.error_type(loc)
         }
         Some((_, field_ty)) => {
-            let tparam_subst =
-                &make_tparam_subst(&context.struct_definition(m, n).type_parameters, ty_args);
+            let tparam_subst = &make_tparam_subst(
+                context
+                    .struct_definition(m, n)
+                    .type_parameters
+                    .iter()
+                    .map(|tp| &tp.param),
+                ty_args,
+            );
             subst_tparams(tparam_subst, field_ty)
         }
     }
@@ -1185,10 +1206,18 @@ pub fn best_loc(subst: &Subst, sp!(loc, t_): &Type) -> Loc {
     }
 }
 
-pub fn make_tparam_subst(tps: &[TParam], args: Vec<Type>) -> TParamSubst {
+pub fn make_tparam_subst<'a, I1, I2>(tps: I1, args: I2) -> TParamSubst
+where
+    I1: IntoIterator<Item = &'a TParam>,
+    I1::IntoIter: ExactSizeIterator,
+    I2: IntoIterator<Item = Type>,
+    I2::IntoIter: ExactSizeIterator,
+{
+    let tps = tps.into_iter();
+    let args = args.into_iter();
     assert!(tps.len() == args.len());
     let mut subst = TParamSubst::new();
-    for (tp, arg) in tps.iter().zip(args) {
+    for (tp, arg) in tps.zip(args) {
         let old_val = subst.insert(tp.id, arg);
         assert!(old_val.is_none())
     }
@@ -1272,7 +1301,7 @@ fn instantiate_apply(
         sp!(_, N::TypeName_::ModuleType(m, s)) => {
             debug_assert!(abilities_opt.is_none(), "ICE instantiated expanded type");
             let tps = context.struct_tparams(m, s);
-            tps.iter().map(|tp| tp.abilities.clone()).collect()
+            tps.iter().map(|tp| tp.param.abilities.clone()).collect()
         }
     };
 

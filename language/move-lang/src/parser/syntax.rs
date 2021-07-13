@@ -1554,6 +1554,25 @@ fn parse_type_parameter(tokens: &mut Lexer) -> Result<(Name, Vec<Ability>), Diag
     Ok((n, ability_constraints))
 }
 
+// Parse type parameter with optional phantom declaration:
+//   TypeParameterWithPhantomDecl = "phantom"? <TypeParameter>
+fn parse_type_parameter_with_phantom_decl(
+    tokens: &mut Lexer,
+) -> Result<StructTypeParameter, Diagnostic> {
+    let is_phantom = if tokens.peek() == Tok::IdentifierValue && tokens.content() == "phantom" {
+        tokens.advance()?;
+        true
+    } else {
+        false
+    };
+    let (name, constraints) = parse_type_parameter(tokens)?;
+    Ok(StructTypeParameter {
+        is_phantom,
+        name,
+        constraints,
+    })
+}
+
 // Parse optional type parameter list.
 //    OptionalTypeParameters = "<" Comma<TypeParameter> ">" | <empty>
 fn parse_optional_type_parameters(
@@ -1565,6 +1584,24 @@ fn parse_optional_type_parameters(
             Tok::Less,
             Tok::Greater,
             parse_type_parameter,
+            "a type parameter",
+        )
+    } else {
+        Ok(vec![])
+    }
+}
+
+// Parse optional struct type parameters:
+//    StructTypeParameter = "<" Comma<TypeParameterWithPhantomDecl> ">" | <empty>
+fn parse_struct_type_parameters(
+    tokens: &mut Lexer,
+) -> Result<Vec<StructTypeParameter>, Diagnostic> {
+    if tokens.peek() == Tok::Less {
+        parse_comma_list(
+            tokens,
+            Tok::Less,
+            Tok::Greater,
+            parse_type_parameter_with_phantom_decl,
             "a type parameter",
         )
     } else {
@@ -1705,7 +1742,7 @@ fn parse_struct_decl(
 
     // <StructDefName>
     let name = StructName(parse_identifier(tokens)?);
-    let type_parameters = parse_optional_type_parameters(tokens)?;
+    let type_parameters = parse_struct_type_parameters(tokens)?;
 
     let abilities = if tokens.peek() == Tok::IdentifierValue && tokens.content() == "has" {
         tokens.advance()?;

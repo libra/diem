@@ -299,7 +299,8 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                 !def.abilities.has_ability_(PA::Ability_::Drop)
             );
         let mut et = ExpTranslator::new(self);
-        let type_params = et.analyze_and_add_type_params(&def.type_parameters);
+        let type_params =
+            et.analyze_and_add_type_params(def.type_parameters.iter().map(|param| &param.name));
         et.parent.parent.define_struct(
             et.to_loc(&def.loc),
             qsym,
@@ -316,7 +317,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         let fun_id = FunId::new(qsym.symbol);
         let mut et = ExpTranslator::new(self);
         et.enter_scope();
-        let type_params = et.analyze_and_add_type_params(&def.signature.type_parameters);
+        let type_params = et.analyze_and_add_type_params(
+            def.signature.type_parameters.iter().map(|(name, _)| name),
+        );
         et.enter_scope();
         let params = et.analyze_and_add_params(&def.signature.parameters, true);
         let result_type = et.translate_type(&def.signature.return_type);
@@ -374,7 +377,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         }
         // If this is a schema spec block, process its declaration.
         if let EA::SpecBlockTarget_::Schema(name, type_params) = &block.value.target.value {
-            self.decl_ana_schema(&block, &name, &type_params);
+            self.decl_ana_schema(&block, &name, type_params.iter().map(|(name, _)| name));
         }
     }
 
@@ -394,7 +397,12 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                 name,
                 type_,
                 type_parameters,
-            } => self.decl_ana_global_var(&loc, name, type_parameters, type_),
+            } => self.decl_ana_global_var(
+                &loc,
+                name,
+                type_parameters.iter().map(|(name, _)| name),
+                type_,
+            ),
             _ => {}
         }
     }
@@ -447,7 +455,8 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         for_move_fun: bool,
     ) -> (Vec<(Symbol, Type)>, Vec<(Symbol, Type)>, Type) {
         let et = &mut ExpTranslator::new(self);
-        let type_params = et.analyze_and_add_type_params(&signature.type_parameters);
+        let type_params =
+            et.analyze_and_add_type_params(signature.type_parameters.iter().map(|(name, _)| name));
         et.enter_scope();
         let params = et.analyze_and_add_params(&signature.parameters, for_move_fun);
         let result_type = et.translate_type(&signature.return_type);
@@ -455,13 +464,15 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         (type_params, params, result_type)
     }
 
-    fn decl_ana_global_var(
+    fn decl_ana_global_var<'a, I>(
         &mut self,
         loc: &Loc,
         name: &Name,
-        type_params: &[(Name, EA::AbilitySet)],
+        type_params: I,
         type_: &EA::Type,
-    ) {
+    ) where
+        I: IntoIterator<Item = &'a Name>,
+    {
         let name = self.symbol_pool().make(name.value.as_str());
         let (type_params, type_) = {
             let et = &mut ExpTranslator::new(self);
@@ -498,16 +509,14 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         self.spec_vars.push(var_decl);
     }
 
-    fn decl_ana_schema<T>(
-        &mut self,
-        block: &EA::SpecBlock,
-        name: &Name,
-        type_params: &[(Name, T)],
-    ) {
+    fn decl_ana_schema<'a, I>(&mut self, block: &EA::SpecBlock, name: &Name, type_params: I)
+    where
+        I: IntoIterator<Item = &'a Name>,
+    {
         let qsym = self.qualified_by_module_from_name(name);
         let mut et = ExpTranslator::new(self);
         et.enter_scope();
-        let type_params = et.analyze_and_add_type_params(&type_params);
+        let type_params = et.analyze_and_add_type_params(type_params);
         // Extract local variables.
         let mut vars = vec![];
         for member in &block.value.members {
@@ -2397,7 +2406,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                 // This is a match, so apply this schema to this function.
                 let type_params = {
                     let mut et = ExpTranslator::new(self);
-                    et.analyze_and_add_type_params(&matched.value.type_parameters);
+                    et.analyze_and_add_type_params(
+                        matched.value.type_parameters.iter().map(|(name, _)| name),
+                    );
                     et.get_type_params_with_name()
                 };
                 // Create a property marking this as injected.

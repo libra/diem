@@ -146,6 +146,15 @@ impl<S: KVStorage> GenesisBuilder<S> {
         Ok(validators)
     }
 
+    pub fn stdlib(&self) -> Result<Vec<Vec<u8>>> {
+        let layout = self.layout()?;
+        layout
+            .move_modules
+            .iter()
+            .map(|module_hex| hex::decode(module_hex).map_err(Into::into))
+            .collect()
+    }
+
     pub fn set_owner_key(
         &mut self,
         owner_namespace: &str,
@@ -199,6 +208,7 @@ impl<S: KVStorage> GenesisBuilder<S> {
         let diem_root_key = self.root_key()?;
         let treasury_compliance_key = self.treasury_compliance_key()?;
         let validators = self.validators()?;
+        let stdlib = self.stdlib()?;
 
         // Only have an allowlist of stdlib scripts
         let script_policy = None;
@@ -207,6 +217,7 @@ impl<S: KVStorage> GenesisBuilder<S> {
             diem_root_key,
             treasury_compliance_key,
             &validators,
+            &stdlib,
             script_policy,
             chain_id,
         );
